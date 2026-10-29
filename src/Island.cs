@@ -21,7 +21,18 @@ namespace Notchira
         static readonly SizeF ExpSize = new SizeF(440, 140);
         const float TextX = 130, TextW = 292, BarY = 78, BtnY = 118;
 
-        enum Mode { Idle, Compact, Expanded }
+        static readonly SizeF ToastSize = new SizeF(300, 56);
+
+        enum Mode { Idle, Compact, Toast, Expanded }
+
+        sealed class ToastInfo { public string Title, Body, Id; public int Progress = -1; }
+        ToastInfo toast;
+        readonly Timer toastTimer = new Timer();
+        long lastToastTick;
+
+        Lyrics lyrics;
+        string lyricKey;
+        readonly Timer lyricTimer = new Timer();
 
         float S = 1f;
         Bitmap frame, backdrop;
@@ -44,7 +55,7 @@ namespace Notchira
 
         NotifyIcon tray;
         ContextMenuStrip menu;
-        ToolStripMenuItem miHide, miLiquid, miSolid, miAuto;
+        ToolStripMenuItem miHide, miLiquid, miSolid, miAuto, miLyrics;
 
         static readonly Font fTitle = new Font("Segoe UI", 15f, FontStyle.Bold, GraphicsUnit.Pixel);
         static readonly Font fSub = new Font("Segoe UI", 12.5f, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -80,6 +91,8 @@ namespace Notchira
             leave.Tick += delegate { leave.Stop(); hover = false; Retarget(); };
             slow.Tick += delegate { OnSlow(); };
             pause.Tick += delegate { pause.Stop(); pausedRecent = false; Retarget(); };
+            toastTimer.Tick += delegate { toastTimer.Stop(); toast = null; Retarget(); Render(); };
+            lyricTimer.Tick += delegate { lyricTimer.Stop(); Render(); ScheduleLyric(); };
             media.Changed += OnTrack;
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged += delegate { Setup(); Render(); };
         }
@@ -111,6 +124,7 @@ namespace Notchira
             string demo = Environment.GetEnvironmentVariable("NOTCHIRA_DEMO");
             if (demo != null) StartDemo(demo);
             else media.Start();
+            Notify.StartServer(OnNotify);
             CaptureBackdrop();
             Render();
         }
@@ -148,6 +162,7 @@ namespace Notchira
         Mode Target()
         {
             if (hover) return Mode.Expanded;
+            if (toast != null) return Mode.Toast;
             if (track != null && (track.Playing || pausedRecent)) return Mode.Compact;
             return Mode.Idle;
         }
@@ -162,11 +177,73 @@ namespace Notchira
                 tick.Enabled = m == Mode.Expanded;
                 tickCount = 0;
             }
-            SizeF z = m == Mode.Idle ? IdleSize : m == Mode.Compact ? CompSize : ExpSize;
+            SizeF z = m == Mode.Idle ? IdleSize : m == Mode.Compact ? CompSize : m == Mode.Toast ? ToastSize : ExpSize;
             sw.T = z.Width;
             sh.T = z.Height;
             if (!anim.Enabled) { clock.Restart(); lastT = 0; anim.Start(); }
             else Render();
+            ScheduleLyric();
+        }
+
+        // ---- toast (from --notify) --------------------------------------------------------------------------
+
+        void OnNotify(Notify.Message m)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            BeginInvoke((Action)delegate { ShowToast(m); });
+        }
+
+        void ShowToast(Notify.Message m)
+        {
+            bool update = toast != null && m.Progress >= 0 && m.Id.Length > 0 && toast.Id == m.Id;
+            long now = Environment.TickCount;
+            if (!update && now - lastToastTick < 500) return;
+            lastToastTick = now;
+            toast = new ToastInfo { Title = m.Title, Body = m.Body, Id = m.Id, Progress = m.Progress };
+            toastTimer.Stop();
+            toastTimer.Interval = m.Progress < 0 ? 3500 : m.Progress >= 100 ? 1200 : 120000;
+            toastTimer.Start();
+            Retarget();
+            Render();
+        }
+
+        // ---- lyrics -----------------------------------------------------------------------------------------
+
+        void LoadLyrics(TrackInfo t)
+        {
+            string key = t == null ? null : t.Title + "|" + t.Artist;
+            if (key == lyricKey) return;
+            lyricKey = key;
+            lyrics = null;
+            if (t == null || Settings.Get("lyrics", "1") != "1") return;
+            string title = t.Title, artist = t.Artist, album = t.Album;
+            Lyrics.Fetch(title, artist, album, t.Duration, Settings.Get("lyrics.online", "1") == "1", delegate(Lyrics l)
+            {
+                if (IsDisposed || !IsHandleCreated) return;
+                BeginInvoke((Action)delegate
+                {
+                    if (key != lyricKey) return;
+                    lyrics = l;
+                    ScheduleLyric();
+                    Render();
+                });
+            });
+        }
+
+        void ScheduleLyric()
+        {
+            lyricTimer.Stop();
+            if (lyrics == null || track == null || !track.Playing || cur == Mode.Idle) return;
+            TimeSpan pos = track.Now(), next;
+            if (!lyrics.NextTime(pos, out next)) return;
+            lyricTimer.Interval = (int)Math.Max(30, Math.Min(60000, (next - pos).TotalMilliseconds + 10));
+            lyricTimer.Start();
+        }
+
+        string CurrentLine()
+        {
+            if (lyrics == null || track == null) return "";
+            return lyrics.LineAt(track.Now());
         }
 
         void OnAnim(object s, EventArgs e)
@@ -186,6 +263,7 @@ namespace Notchira
             BeginInvoke((Action)delegate
             {
                 track = t;
+                LoadLyrics(t);
                 pause.Stop();
                 pausedRecent = t != null && !t.Playing;
                 if (pausedRecent) pause.Start();
@@ -225,6 +303,16 @@ namespace Notchira
         {
             base.OnMouseLeave(e);
             if (hover) leave.Start();
+        }
+
+        // Scrolling over the island while it is closed changes the system volume.
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            if (cur == Mode.Expanded) return;
+            byte vk = e.Delta > 0 ? (byte)0xAF : (byte)0xAE;
+            Native.keybd_event(vk, 0, 0, UIntPtr.Zero);
+            Native.keybd_event(vk, 0, 2, UIntPtr.Zero);
         }
 
         static float Dist(float x1, float y1, float x2, float y2)
@@ -365,6 +453,12 @@ namespace Notchira
 
         void DrawContent(Graphics g, float x0, float w, float h)
         {
+            if (cur == Mode.Toast && toast != null)
+            {
+                float ta = Clamp01((h - 30) / 24) * Clamp01((w - 180) / 100);
+                if (ta > 0.02f) DrawToast(g, x0, w, ta);
+                return;
+            }
             float tExp = Clamp01((h - CompSize.Height) / (ExpSize.Height - CompSize.Height));
             float tCmp = Clamp01((w - 120) / (CompSize.Width - 120)) * (1 - tExp);
             if (tCmp > 0.02f && track != null) DrawCompact(g, x0, w, tCmp);
@@ -374,8 +468,9 @@ namespace Notchira
         void DrawCompact(Graphics g, float x0, float w, float a)
         {
             DrawArt(g, new RectangleF(x0 + 10, 5, 22, 22), 5, a);
+            string line = track.Playing ? CurrentLine() : "";
             using (var b = new SolidBrush(Wh(a, 240)))
-                g.DrawString(track.Title, fComp, b, new RectangleF(x0 + 40, 8, w - 40 - 44, 18), sfNear);
+                g.DrawString(line.Length > 0 ? line : track.Title, fComp, b, new RectangleF(x0 + 40, 8, w - 40 - 44, 18), sfNear);
             float bx = x0 + w - 30;
             using (var b = new SolidBrush(Wh(a, track.Playing ? 235 : 130)))
             {
@@ -390,6 +485,22 @@ namespace Notchira
                     g.FillRectangle(b, bx + 2, 9, 4, 14);
                     g.FillRectangle(b, bx + 10, 9, 4, 14);
                 }
+            }
+        }
+
+        void DrawToast(Graphics g, float x0, float w, float a)
+        {
+            using (var b = new SolidBrush(Wh(a, 250)))
+                g.DrawString(toast.Title, fSub, b, new RectangleF(x0 + 18, 8, w - 36, 18), sfNear);
+            using (var b = new SolidBrush(Wh(a, 165)))
+                g.DrawString(toast.Body, fComp, b, new RectangleF(x0 + 18, 26, w - 36, 18), sfNear);
+            if (toast.Progress >= 0)
+            {
+                using (var b = new SolidBrush(Wh(a, 55)))
+                    g.FillPath(b, RoundRect(new RectangleF(x0 + 18, 46, w - 36, 3), 1.5f));
+                if (toast.Progress > 0)
+                    using (var b = new SolidBrush(Wh(a, 235)))
+                        g.FillPath(b, RoundRect(new RectangleF(x0 + 18, 46, Math.Max(3, (w - 36) * toast.Progress / 100f), 3), 1.5f));
             }
         }
 
@@ -413,6 +524,10 @@ namespace Notchira
                 g.DrawString(track.Title, fTitle, b, new RectangleF(tx, 20, TextW, 22), sfNear);
             using (var b = new SolidBrush(Wh(a, 160)))
                 g.DrawString(track.Artist, fSub, b, new RectangleF(tx, 43, TextW, 20), sfNear);
+            string lyric = CurrentLine();
+            if (lyric.Length > 0)
+                using (var b = new SolidBrush(Wh(a, 215)))
+                    g.DrawString(lyric, fComp, b, new RectangleF(tx, 57, TextW, 18), sfNear);
 
             TimeSpan pos = track.Now(), dur = track.Duration;
             float frac = dur > TimeSpan.Zero ? (float)Math.Min(1.0, pos.TotalSeconds / dur.TotalSeconds) : 0f;
@@ -534,6 +649,11 @@ namespace Notchira
             miSolid.Click += delegate { SetMaterial("solid"); };
             var mat = new ToolStripMenuItem("Material");
             mat.DropDownItems.AddRange(new ToolStripItem[] { miLiquid, miSolid });
+            miLyrics = new ToolStripMenuItem("Cari lirik online (LRCLIB)");
+            miLyrics.Click += delegate
+            {
+                Settings.Set("lyrics.online", Settings.Get("lyrics.online", "1") == "1" ? "0" : "1");
+            };
             miAuto = new ToolStripMenuItem("Mulai bersama Windows");
             miAuto.Click += delegate { SetAutostart(!IsAutostart()); };
             var miFolder = new ToolStripMenuItem("Buka folder data");
@@ -543,12 +663,13 @@ namespace Notchira
             };
             var miQuit = new ToolStripMenuItem("Keluar");
             miQuit.Click += delegate { Application.Exit(); };
-            menu.Items.AddRange(new ToolStripItem[] { miHide, mat, miAuto, miFolder, new ToolStripSeparator(), miQuit });
+            menu.Items.AddRange(new ToolStripItem[] { miHide, mat, miLyrics, miAuto, miFolder, new ToolStripSeparator(), miQuit });
             menu.Opening += delegate
             {
                 miHide.Text = (userHidden ? "Tampilkan island" : "Sembunyikan island") + "\tCtrl+Alt+H";
                 miLiquid.Checked = material == "liquid";
                 miSolid.Checked = material != "liquid";
+                miLyrics.Checked = Settings.Get("lyrics.online", "1") == "1";
                 miAuto.Checked = IsAutostart();
             };
             ContextMenuStrip = menu;
@@ -617,25 +738,28 @@ namespace Notchira
 
         void StartDemo(string mode)
         {
-            if (mode != "idle")
+            if (mode != "idle" && mode != "toast")
             {
+                bool real = mode == "lyrics";
                 track = new TrackInfo
                 {
-                    Title = "Aurora Borealis",
-                    Artist = "Notchira Sound Lab",
+                    Title = real ? "Shape of You" : "Aurora Borealis",
+                    Artist = real ? "Ed Sheeran" : "Notchira Sound Lab",
+                    Album = real ? "÷ (Divide)" : "",
                     Playing = true,
-                    Position = TimeSpan.FromSeconds(45),
-                    Duration = TimeSpan.FromSeconds(192),
+                    Position = TimeSpan.FromSeconds(real ? 60 : 45),
+                    Duration = TimeSpan.FromSeconds(real ? 233 : 192),
                     Stamp = DateTime.UtcNow
                 };
+                LoadLyrics(track);
             }
             var t = new Timer { Interval = 700 };
             t.Tick += delegate
             {
                 t.Stop();
-                if (mode == "expanded") { hover = true; }
+                if (mode == "expanded" || mode == "lyrics") { hover = true; }
                 Retarget();
-                var done = new Timer { Interval = 2200 };
+                var done = new Timer { Interval = mode == "lyrics" ? 9000 : 2200 };
                 done.Tick += delegate
                 {
                     done.Stop();
