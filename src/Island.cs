@@ -40,6 +40,8 @@ namespace Notchira
         readonly Timer nodTimer = new Timer { Interval = 1300 };
         readonly Timer sleepTimer = new Timer { Interval = 60000 };
         readonly Random rng = new Random();
+        readonly Timer trimTimer = new Timer { Interval = 3000 };
+        long lastTrim;
         bool asleep, quiet;
         long lastSound;
 
@@ -112,6 +114,16 @@ namespace Notchira
             slow.Tick += delegate { OnSlow(); };
             pause.Tick += delegate { pause.Stop(); pausedRecent = false; Retarget(); };
             look.Tick += delegate { OnLook(); };
+            trimTimer.Tick += delegate
+            {
+                trimTimer.Stop();
+                long now = Environment.TickCount;
+                if (!anim.Enabled && cur != Mode.Expanded && now - lastTrim > 30000)
+                {
+                    lastTrim = now;
+                    Memory.Trim();
+                }
+            };
             blinkTimer.Tick += delegate
             {
                 blinkTimer.Stop();
@@ -150,6 +162,7 @@ namespace Notchira
         {
             base.OnShown(e);
             slow.Start();
+            trimTimer.Start();
             look.Start();
             ScheduleBlink();
             sleepTimer.Start();
@@ -291,7 +304,13 @@ namespace Notchira
             bool b = sh.Step(dt);
             bool m = eyes.Step(dt);
             Render();
-            if (!a && !b && !m) { anim.Stop(); return; }
+            if (!a && !b && !m)
+            {
+                anim.Stop();
+                trimTimer.Stop();
+                trimTimer.Start();
+                return;
+            }
             int want = (a || b) ? 10 : 33;
             if (anim.Interval != want) anim.Interval = want;
         }

@@ -26,6 +26,7 @@ Sudah ada:
   | Tidak ada aktivitas 1 menit | Mengantuk, hampir terpejam |
 
 - **Efek suara** pendek untuk toast, progres selesai, dan klik tombol musik. Bunyinya disintesis di memori (tanpa berkas audio). Letakkan `toast.wav`, `done.wav`, atau `click.wav` di `%APPDATA%\Notchira\sounds\` untuk menggantinya. Pelan secara bawaan; diam saat layar penuh, Focus Assist, island disembunyikan, dan (kecuali klik) saat musik main. Bisa dimatikan dari menu tray.
+- Memori dikembalikan ke Windows saat island diam (paling cepat sekali per 30 detik, tidak saat panel terbuka): sekitar 4–6 MB di Task Manager saat idle, naik lagi sesuai kebutuhan.
 - Tanpa gerak saat tidak ada yang berubah: bingkai digambar hanya selama animasi (10 ms saat island berubah ukuran, 33 ms saat hanya mata bergerak).
 
 ## Rencana
