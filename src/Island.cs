@@ -34,6 +34,14 @@ namespace Notchira
         string lyricKey;
         readonly Timer lyricTimer = new Timer();
 
+        readonly Eyes eyes = new Eyes();
+        readonly Timer look = new Timer { Interval = 100 };
+        readonly Timer blinkTimer = new Timer();
+        readonly Timer nodTimer = new Timer { Interval = 1300 };
+        readonly Timer sleepTimer = new Timer { Interval = 60000 };
+        readonly Random rng = new Random();
+        bool asleep;
+
         float S = 1f;
         Bitmap frame, backdrop;
         readonly Spring sw = new Spring(IdleSize.Width);
@@ -91,6 +99,15 @@ namespace Notchira
             leave.Tick += delegate { leave.Stop(); hover = false; Retarget(); };
             slow.Tick += delegate { OnSlow(); };
             pause.Tick += delegate { pause.Stop(); pausedRecent = false; Retarget(); };
+            look.Tick += delegate { OnLook(); };
+            blinkTimer.Tick += delegate
+            {
+                blinkTimer.Stop();
+                if (Visible) { eyes.Blink(rng.Next(5) == 0); Kick(); }
+                ScheduleBlink();
+            };
+            nodTimer.Tick += delegate { if (Visible && track != null && track.Playing) { eyes.Nod(); Kick(); } };
+            sleepTimer.Tick += delegate { sleepTimer.Stop(); asleep = true; UpdateMood(); };
             toastTimer.Tick += delegate { toastTimer.Stop(); toast = null; Retarget(); Render(); };
             lyricTimer.Tick += delegate { lyricTimer.Stop(); Render(); ScheduleLyric(); };
             media.Changed += OnTrack;
@@ -121,6 +138,9 @@ namespace Notchira
         {
             base.OnShown(e);
             slow.Start();
+            look.Start();
+            ScheduleBlink();
+            sleepTimer.Start();
             string demo = Environment.GetEnvironmentVariable("NOTCHIRA_DEMO");
             if (demo != null) StartDemo(demo);
             else media.Start();
@@ -180,8 +200,9 @@ namespace Notchira
             SizeF z = m == Mode.Idle ? IdleSize : m == Mode.Compact ? CompSize : m == Mode.Toast ? ToastSize : ExpSize;
             sw.T = z.Width;
             sh.T = z.Height;
-            if (!anim.Enabled) { clock.Restart(); lastT = 0; anim.Start(); }
+            if (!anim.Enabled) Kick();
             else Render();
+            UpdateMood();
             ScheduleLyric();
         }
 
@@ -199,6 +220,7 @@ namespace Notchira
             long now = Environment.TickCount;
             if (!update && now - lastToastTick < 500) return;
             lastToastTick = now;
+            Wake();
             toast = new ToastInfo { Title = m.Title, Body = m.Body, Id = m.Id, Progress = m.Progress };
             toastTimer.Stop();
             toastTimer.Interval = m.Progress < 0 ? 3500 : m.Progress >= 100 ? 1200 : 120000;
@@ -253,8 +275,73 @@ namespace Notchira
             lastT = t;
             bool a = sw.Step(dt);
             bool b = sh.Step(dt);
+            bool m = eyes.Step(dt);
             Render();
-            if (!a && !b) anim.Stop();
+            if (!a && !b && !m) { anim.Stop(); return; }
+            int want = (a || b) ? 10 : 33;
+            if (anim.Interval != want) anim.Interval = want;
+        }
+
+        void Kick()
+        {
+            if (anim.Enabled) return;
+            anim.Interval = 10;
+            clock.Restart();
+            lastT = 0;
+            anim.Start();
+        }
+
+        // ---- eyes -------------------------------------------------------------------------------------------
+
+        void Wake()
+        {
+            sleepTimer.Stop();
+            sleepTimer.Start();
+            if (asleep) { asleep = false; UpdateMood(); }
+        }
+
+        void UpdateMood()
+        {
+            float happy = 0, wide = 0, droop = 0;
+            bool focus = false;
+            if (toast != null)
+            {
+                if (toast.Progress >= 0 && toast.Progress < 100) focus = true;
+                else wide = 1;
+            }
+            else if (hover) wide = 0.35f;
+            else if (track != null && track.Playing) happy = 1;
+            else if (track != null) droop = 0.6f;
+            else if (asleep) droop = 1.7f;
+            eyes.Happy.T = happy;
+            eyes.Wide.T = wide;
+            eyes.Droop.T = droop;
+            eyes.LookX.T = focus ? 0 : eyes.LookX.T;
+            eyes.LookY.T = focus ? 0.9f : eyes.LookY.T;
+            lookLocked = focus;
+            if (happy > 0) { if (!nodTimer.Enabled) nodTimer.Start(); } else nodTimer.Stop();
+            Kick();
+        }
+
+        bool lookLocked;
+
+        void OnLook()
+        {
+            if (!Visible || lookLocked) return;
+            var p = Cursor.Position;
+            float ex = Left + (MaxW / 2f) * S, ey = Top + 14 * S;
+            float tx = Clamp01(Math.Abs(p.X - ex) / (260 * S)) * Math.Sign(p.X - ex);
+            float ty = Clamp01(Math.Abs(p.Y - ey) / (260 * S)) * Math.Sign(p.Y - ey);
+            if (Math.Abs(tx - eyes.LookX.T) < 0.03f && Math.Abs(ty - eyes.LookY.T) < 0.03f) return;
+            eyes.LookX.T = tx;
+            eyes.LookY.T = ty;
+            Kick();
+        }
+
+        void ScheduleBlink()
+        {
+            blinkTimer.Interval = rng.Next(2500, 6500);
+            blinkTimer.Start();
         }
 
         void OnTrack(TrackInfo t)
@@ -263,6 +350,7 @@ namespace Notchira
             BeginInvoke((Action)delegate
             {
                 track = t;
+                Wake();
                 LoadLyrics(t);
                 pause.Stop();
                 pausedRecent = t != null && !t.Playing;
@@ -296,6 +384,7 @@ namespace Notchira
         {
             base.OnMouseEnter(e);
             leave.Stop();
+            Wake();
             if (!hover) { hover = true; Retarget(); }
         }
 
@@ -461,6 +550,8 @@ namespace Notchira
             }
             float tExp = Clamp01((h - CompSize.Height) / (ExpSize.Height - CompSize.Height));
             float tCmp = Clamp01((w - 120) / (CompSize.Width - 120)) * (1 - tExp);
+            float tIdle = (1 - Clamp01((w - 100) / 50)) * (1 - tExp);
+            eyes.Draw(g, MaxW / 2f, 12, 1.2f, tIdle);
             if (tCmp > 0.02f && track != null) DrawCompact(g, x0, w, tCmp);
             if (tExp > 0.02f) DrawExpanded(g, x0, tExp * tExp);
         }
@@ -471,29 +562,16 @@ namespace Notchira
             string line = track.Playing ? CurrentLine() : "";
             using (var b = new SolidBrush(Wh(a, 240)))
                 g.DrawString(line.Length > 0 ? line : track.Title, fComp, b, new RectangleF(x0 + 40, 8, w - 40 - 44, 18), sfNear);
-            float bx = x0 + w - 30;
-            using (var b = new SolidBrush(Wh(a, track.Playing ? 235 : 130)))
-            {
-                if (track.Playing)
-                {
-                    g.FillRectangle(b, bx, 12, 3, 8);
-                    g.FillRectangle(b, bx + 6, 8, 3, 16);
-                    g.FillRectangle(b, bx + 12, 11, 3, 10);
-                }
-                else
-                {
-                    g.FillRectangle(b, bx + 2, 9, 4, 14);
-                    g.FillRectangle(b, bx + 10, 9, 4, 14);
-                }
-            }
+            eyes.Draw(g, x0 + w - 27, 16, 0.85f, a);
         }
 
         void DrawToast(Graphics g, float x0, float w, float a)
         {
             using (var b = new SolidBrush(Wh(a, 250)))
-                g.DrawString(toast.Title, fSub, b, new RectangleF(x0 + 18, 8, w - 36, 18), sfNear);
+                g.DrawString(toast.Title, fSub, b, new RectangleF(x0 + 18, 8, w - 80, 18), sfNear);
             using (var b = new SolidBrush(Wh(a, 165)))
-                g.DrawString(toast.Body, fComp, b, new RectangleF(x0 + 18, 26, w - 36, 18), sfNear);
+                g.DrawString(toast.Body, fComp, b, new RectangleF(x0 + 18, 26, w - 80, 18), sfNear);
+            eyes.Draw(g, x0 + w - 36, 20, 0.95f, a);
             if (toast.Progress >= 0)
             {
                 using (var b = new SolidBrush(Wh(a, 55)))
@@ -506,6 +584,7 @@ namespace Notchira
 
         void DrawExpanded(Graphics g, float ex, float a)
         {
+            eyes.Draw(g, ex + ExpSize.Width - 36, 20, 0.95f, a);
             if (track == null)
             {
                 var now = DateTime.Now;
@@ -521,7 +600,7 @@ namespace Notchira
             DrawArt(g, new RectangleF(ex + 18, 22, 96, 96), 14, a);
             float tx = ex + TextX;
             using (var b = new SolidBrush(Wh(a, 250)))
-                g.DrawString(track.Title, fTitle, b, new RectangleF(tx, 20, TextW, 22), sfNear);
+                g.DrawString(track.Title, fTitle, b, new RectangleF(tx, 20, TextW - 50, 22), sfNear);
             using (var b = new SolidBrush(Wh(a, 160)))
                 g.DrawString(track.Artist, fSub, b, new RectangleF(tx, 43, TextW, 20), sfNear);
             string lyric = CurrentLine();
@@ -738,7 +817,8 @@ namespace Notchira
 
         void StartDemo(string mode)
         {
-            if (mode != "idle" && mode != "toast")
+            if (mode == "sleepy") { asleep = true; UpdateMood(); }
+            if (mode != "idle" && mode != "toast" && mode != "sleepy")
             {
                 bool real = mode == "lyrics";
                 track = new TrackInfo
