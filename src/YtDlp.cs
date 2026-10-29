@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -127,6 +127,29 @@ namespace Notchira
             psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
             psi.EnvironmentVariables["PYTHONUTF8"] = "1";
             return psi;
+        }
+
+        // Runs yt-dlp with ready-made arguments; output holds stdout and stderr. False on timeout or failure.
+        public static bool Run(string args, int timeoutMs, out string output)
+        {
+            output = "";
+            if (!Installed) return false;
+            try
+            {
+                var sb = new StringBuilder();
+                using (var p = Process.Start(NewStart(args)))
+                {
+                    p.OutputDataReceived += (s, e) => { if (e.Data != null) lock (sb) sb.AppendLine(e.Data); };
+                    p.ErrorDataReceived += (s, e) => { if (e.Data != null) lock (sb) sb.AppendLine(e.Data); };
+                    p.BeginOutputReadLine();
+                    p.BeginErrorReadLine();
+                    if (!p.WaitForExit(timeoutMs)) { try { p.Kill(); } catch { } output = sb.ToString(); return false; }
+                    p.WaitForExit();
+                    output = sb.ToString();
+                    return p.ExitCode == 0;
+                }
+            }
+            catch (Exception ex) { output = ex.Message; return false; }
         }
 
         // ---- audio download -------------------------------------------------------------------------------

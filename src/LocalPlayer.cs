@@ -177,7 +177,8 @@ namespace Notchira
                 Position = ses.Position,
                 Duration = dur,
                 Stamp = DateTime.UtcNow,
-                Thumb = thumb
+                Thumb = thumb,
+                SongId = s.Id
             };
         }
     }

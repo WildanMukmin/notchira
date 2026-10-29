@@ -16,6 +16,7 @@ namespace Notchira
         public double Rate = 1;
         public DateTime Stamp = DateTime.UtcNow;
         public Bitmap Thumb;
+        public string SongId; // set for songs from the built-in player
 
         public TimeSpan Now()
         {

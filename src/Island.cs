@@ -15,11 +15,17 @@ namespace Notchira
     // The window is allocated once at the largest size; only the notch shape inside it grows and shrinks.
     sealed class Island : Form
     {
-        const float MaxW = 460, MaxH = 150;
+        const float MaxW = 460, MaxH = 200;
         static readonly SizeF IdleSize = new SizeF(96, 24);
         static readonly SizeF CompSize = new SizeF(250, 32);
         static readonly SizeF ExpSize = new SizeF(440, 140);
-        const float TextX = 130, TextW = 292, BarY = 78, BtnY = 118;
+        const float TextX = 130, TextW = 292;
+
+        // With synced lyrics the open panel grows to fit a three-line block between the artist and the progress bar.
+        float LyrOff { get { return lyrics != null ? 44f : 0f; } }
+        float ExpH { get { return ExpSize.Height + LyrOff; } }
+        float BarY { get { return 78 + LyrOff; } }
+        float BtnY { get { return 118 + LyrOff; } }
 
         static readonly SizeF ToastSize = new SizeF(300, 56);
 
@@ -80,6 +86,7 @@ namespace Notchira
         ToolStripMenuItem miHide, miLiquid, miSolid, miAuto, miLyrics, miSound;
 
         static readonly Font fTitle = new Font("Segoe UI", 15f, FontStyle.Bold, GraphicsUnit.Pixel);
+        static readonly Font fLyric = new Font("Segoe UI Semibold", 14.5f, FontStyle.Regular, GraphicsUnit.Pixel);
         static readonly Font fSub = new Font("Segoe UI", 12.5f, FontStyle.Regular, GraphicsUnit.Pixel);
         static readonly Font fComp = new Font("Segoe UI", 12f, FontStyle.Regular, GraphicsUnit.Pixel);
         static readonly Font fSmall = new Font("Segoe UI", 10f, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -136,6 +143,14 @@ namespace Notchira
             lyricTimer.Tick += delegate { lyricTimer.Stop(); Render(); ScheduleLyric(); };
             media.Changed += OnTrack;
             LocalPlayer.I.Changed += OnLocal;
+            SongLyrics.Updated += delegate(string id)
+            {
+                if (IsDisposed || !IsHandleCreated) return;
+                BeginInvoke((Action)delegate
+                {
+                    if (track != null && track.SongId == id) { lyricKey = null; LoadLyrics(track); }
+                });
+            };
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged += delegate { Setup(); Render(); };
         }
 
@@ -223,7 +238,7 @@ namespace Notchira
                 tick.Enabled = m == Mode.Expanded;
                 tickCount = 0;
             }
-            SizeF z = m == Mode.Idle ? IdleSize : m == Mode.Compact ? CompSize : m == Mode.Toast ? ToastSize : ExpSize;
+            SizeF z = m == Mode.Idle ? IdleSize : m == Mode.Compact ? CompSize : m == Mode.Toast ? ToastSize : new SizeF(ExpSize.Width, ExpH);
             sw.T = z.Width;
             sh.T = z.Height;
             if (!anim.Enabled) Kick();
@@ -262,11 +277,12 @@ namespace Notchira
 
         void LoadLyrics(TrackInfo t)
         {
-            string key = t == null ? null : t.Title + "|" + t.Artist;
+            string key = t == null ? null : (t.SongId != null ? "song:" + t.SongId : t.Title + "|" + t.Artist);
             if (key == lyricKey) return;
             lyricKey = key;
-            lyrics = null;
+            SetLyrics(null);
             if (t == null || Settings.Get("lyrics", "1") != "1") return;
+            if (t.SongId != null) { ResolveSong(t.SongId, key); return; }
             string title = t.Title, artist = t.Artist, album = t.Album;
             Lyrics.Fetch(title, artist, album, t.Duration, Settings.Get("lyrics.online", "1") == "1", delegate(Lyrics l)
             {
@@ -274,13 +290,39 @@ namespace Notchira
                 BeginInvoke((Action)delegate
                 {
                     if (key != lyricKey) return;
-                    lyrics = l;
+                    SetLyrics(l);
                     ScheduleLyric();
                     Render();
                 });
             });
         }
 
+        // Songs from the built-in player: cache, LRCLIB, YouTube captions, then a transcription if a key is stored.
+        void ResolveSong(string id, string key)
+        {
+            Song s = Library.Find(id);
+            if (s == null) return;
+            SongLyrics.Resolve(s, false, delegate(Lyrics l, string source, bool fresh)
+            {
+                if (IsDisposed || !IsHandleCreated) return;
+                BeginInvoke((Action)delegate
+                {
+                    if (key != lyricKey) return;
+                    SetLyrics(l);
+                    ScheduleLyric();
+                    Render();
+                    if (fresh && l != null && source != null)
+                        ShowToast(new Notify.Message { Title = "Teks lagu ditemukan", Body = source });
+                });
+            });
+        }
+
+        void SetLyrics(Lyrics l)
+        {
+            bool resize = (lyrics != null) != (l != null);
+            lyrics = l;
+            if (resize && cur == Mode.Expanded) Retarget();
+        }
         void ScheduleLyric()
         {
             lyricTimer.Stop();
@@ -470,7 +512,7 @@ namespace Notchira
         {
             base.OnMouseDown(e);
             if (e.Button != MouseButtons.Left || cur != Mode.Expanded || track == null) return;
-            if (sh.X < ExpSize.Height - 20) return;
+            if (sh.X < ExpH - 20) return;
             float x = e.X / S, y = e.Y / S, ex = (MaxW - ExpSize.Width) / 2f, cx = ex + TextX + TextW / 2;
             if (Dist(x, y, cx, BtnY) < 20) { Ping("click"); Toggle(); }
             else if (Dist(x, y, cx - 46, BtnY) < 18) { Ping("click"); SkipPrev(); }
@@ -605,7 +647,7 @@ namespace Notchira
                 if (ta > 0.02f) DrawToast(g, x0, w, ta);
                 return;
             }
-            float tExp = Clamp01((h - CompSize.Height) / (ExpSize.Height - CompSize.Height));
+            float tExp = Clamp01((h - CompSize.Height) / (ExpH - CompSize.Height));
             float tCmp = Clamp01((w - 120) / (CompSize.Width - 120)) * (1 - tExp);
             float tIdle = (1 - Clamp01((w - 100) / 50)) * (1 - tExp);
             eyes.Draw(g, MaxW / 2f, 12, 1.2f, tIdle);
@@ -639,6 +681,13 @@ namespace Notchira
             }
         }
 
+        static void DrawLyricLine(Graphics g, float x, float y, string text, Font f, Color c)
+        {
+            if (text == null) return;
+            using (var b = new SolidBrush(c))
+                g.DrawString(text.Length > 0 ? text : "\u266A", f, b, new RectangleF(x, y, TextW, 20), sfNear);
+        }
+
         void DrawExpanded(Graphics g, float ex, float a)
         {
             eyes.Draw(g, ex + ExpSize.Width - 36, 20, 0.95f, a);
@@ -654,16 +703,20 @@ namespace Notchira
                 return;
             }
 
-            DrawArt(g, new RectangleF(ex + 18, 22, 96, 96), 14, a);
+            DrawArt(g, new RectangleF(ex + 18, 22 + LyrOff / 2, 96, 96), 14, a);
             float tx = ex + TextX;
             using (var b = new SolidBrush(Wh(a, 250)))
                 g.DrawString(track.Title, fTitle, b, new RectangleF(tx, 20, TextW - 50, 22), sfNear);
             using (var b = new SolidBrush(Wh(a, 160)))
                 g.DrawString(track.Artist, fSub, b, new RectangleF(tx, 43, TextW, 20), sfNear);
-            string lyric = CurrentLine();
-            if (lyric.Length > 0)
-                using (var b = new SolidBrush(Wh(a, 215)))
-                    g.DrawString(lyric, fComp, b, new RectangleF(tx, 57, TextW, 18), sfNear);
+            if (lyrics != null)
+            {
+                int idx = lyrics.IndexAt(track.Now());
+                DrawLyricLine(g, tx, 62, lyrics.Line(idx - 1), fSub, Wh(a, 105));
+                string now = idx >= 0 ? lyrics.Line(idx) : "";
+                DrawLyricLine(g, tx, 80, now.Length > 0 ? now : "\u266A", fLyric, Wh(a, 255));
+                DrawLyricLine(g, tx, 101, lyrics.Line(idx + 1), fSub, Wh(a, 105));
+            }
 
             TimeSpan pos = track.Now(), dur = track.Duration;
             float frac = dur > TimeSpan.Zero ? (float)Math.Min(1.0, pos.TotalSeconds / dur.TotalSeconds) : 0f;
@@ -926,6 +979,11 @@ namespace Notchira
 
         void StartDemo(string mode)
         {
+            if (mode == "lyricstest")
+            {
+                SelfTest.Run(Environment.GetEnvironmentVariable("NOTCHIRA_DUMP"), delegate { BeginInvoke((Action)Application.Exit); });
+                return;
+            }
             if (mode == "musicwin") { MusicWindow.Demo(Environment.GetEnvironmentVariable("NOTCHIRA_DUMP")); return; }
             if (mode == "music") { DemoMusic(); return; }
             if (mode == "musicplay")
@@ -977,7 +1035,12 @@ namespace Notchira
                     Duration = TimeSpan.FromSeconds(real ? 233 : 192),
                     Stamp = DateTime.UtcNow
                 };
-                LoadLyrics(track);
+                if (real)
+                {
+                    lyricKey = "demo";
+                    SetLyrics(Lyrics.Parse("[00:50.00]Pagi datang membawa cahaya\n[00:56.00]Langkahku ringan menyusuri kota\n[01:02.00]Di tepi layar aku menunggu\n[01:08.00]Sebuah lagu yang kau putar untukku\n[01:14.00]Dan malam pun terasa hangat"));
+                }
+                else LoadLyrics(track);
             }
             var t = new Timer { Interval = 700 };
             t.Tick += delegate
