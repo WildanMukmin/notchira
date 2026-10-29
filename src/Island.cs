@@ -40,7 +40,19 @@ namespace Notchira
         readonly Timer nodTimer = new Timer { Interval = 1300 };
         readonly Timer sleepTimer = new Timer { Interval = 60000 };
         readonly Random rng = new Random();
-        bool asleep;
+        bool asleep, quiet;
+        long lastSound;
+
+        // Sounds stay off in fullscreen, Focus Assist, while hidden, and (except clicks) while music plays.
+        void Ping(string name)
+        {
+            if (Settings.Get("sound", "1") != "1" || userHidden || fsHidden || quiet) return;
+            if (name != "click" && track != null && track.Playing) return;
+            long now = Environment.TickCount;
+            if (now - lastSound < 400) return;
+            lastSound = now;
+            Sounds.Play(name);
+        }
 
         float S = 1f;
         Bitmap frame, backdrop;
@@ -63,7 +75,7 @@ namespace Notchira
 
         NotifyIcon tray;
         ContextMenuStrip menu;
-        ToolStripMenuItem miHide, miLiquid, miSolid, miAuto, miLyrics;
+        ToolStripMenuItem miHide, miLiquid, miSolid, miAuto, miLyrics, miSound;
 
         static readonly Font fTitle = new Font("Segoe UI", 15f, FontStyle.Bold, GraphicsUnit.Pixel);
         static readonly Font fSub = new Font("Segoe UI", 12.5f, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -221,6 +233,8 @@ namespace Notchira
             if (!update && now - lastToastTick < 500) return;
             lastToastTick = now;
             Wake();
+            if (m.Progress < 0) Ping("toast");
+            else if (m.Progress >= 100) Ping("done");
             toast = new ToastInfo { Title = m.Title, Body = m.Body, Id = m.Id, Progress = m.Progress };
             toastTimer.Stop();
             toastTimer.Interval = m.Progress < 0 ? 3500 : m.Progress >= 100 ? 1200 : 120000;
@@ -363,7 +377,9 @@ namespace Notchira
         void OnSlow()
         {
             int st;
-            bool fs = Native.SHQueryUserNotificationState(out st) == 0 && (st == 2 || st == 3 || st == 4);
+            bool ok = Native.SHQueryUserNotificationState(out st) == 0;
+            bool fs = ok && (st == 2 || st == 3 || st == 4);
+            quiet = ok && st == 6;
             if (fs != fsHidden) { fsHidden = fs; ApplyVisible(); }
             if (Visible) Native.SetWindowPos(Handle, Native.HWND_TOPMOST, 0, 0, 0, 0, 0x13);
         }
@@ -415,9 +431,9 @@ namespace Notchira
             if (e.Button != MouseButtons.Left || cur != Mode.Expanded || track == null) return;
             if (sh.X < ExpSize.Height - 20) return;
             float x = e.X / S, y = e.Y / S, ex = (MaxW - ExpSize.Width) / 2f, cx = ex + TextX + TextW / 2;
-            if (Dist(x, y, cx, BtnY) < 20) media.Toggle();
-            else if (Dist(x, y, cx - 46, BtnY) < 18) media.Prev();
-            else if (Dist(x, y, cx + 46, BtnY) < 18) media.Next();
+            if (Dist(x, y, cx, BtnY) < 20) { Ping("click"); media.Toggle(); }
+            else if (Dist(x, y, cx - 46, BtnY) < 18) { Ping("click"); media.Prev(); }
+            else if (Dist(x, y, cx + 46, BtnY) < 18) { Ping("click"); media.Next(); }
             else if (y > BarY - 10 && y < BarY + 14 && x >= ex + TextX && x <= ex + TextX + TextW && track.Duration > TimeSpan.Zero)
             {
                 double f = (x - (ex + TextX)) / TextW;
@@ -733,6 +749,8 @@ namespace Notchira
             {
                 Settings.Set("lyrics.online", Settings.Get("lyrics.online", "1") == "1" ? "0" : "1");
             };
+            miSound = new ToolStripMenuItem("Efek suara");
+            miSound.Click += delegate { Settings.Set("sound", Settings.Get("sound", "1") == "1" ? "0" : "1"); };
             miAuto = new ToolStripMenuItem("Mulai bersama Windows");
             miAuto.Click += delegate { SetAutostart(!IsAutostart()); };
             var miFolder = new ToolStripMenuItem("Buka folder data");
@@ -742,13 +760,14 @@ namespace Notchira
             };
             var miQuit = new ToolStripMenuItem("Keluar");
             miQuit.Click += delegate { Application.Exit(); };
-            menu.Items.AddRange(new ToolStripItem[] { miHide, mat, miLyrics, miAuto, miFolder, new ToolStripSeparator(), miQuit });
+            menu.Items.AddRange(new ToolStripItem[] { miHide, mat, miLyrics, miSound, miAuto, miFolder, new ToolStripSeparator(), miQuit });
             menu.Opening += delegate
             {
                 miHide.Text = (userHidden ? "Tampilkan island" : "Sembunyikan island") + "\tCtrl+Alt+H";
                 miLiquid.Checked = material == "liquid";
                 miSolid.Checked = material != "liquid";
                 miLyrics.Checked = Settings.Get("lyrics.online", "1") == "1";
+                miSound.Checked = Settings.Get("sound", "1") == "1";
                 miAuto.Checked = IsAutostart();
             };
             ContextMenuStrip = menu;
@@ -850,6 +869,7 @@ namespace Notchira
                     {
                         Directory.CreateDirectory(dir);
                         frame.Save(Path.Combine(dir, "frame-" + mode + ".png"), ImageFormat.Png);
+                        foreach (string n in Sounds.Names) File.WriteAllBytes(Path.Combine(dir, n + ".wav"), Sounds.Synth(n));
                     }
                     Application.Exit();
                 };
