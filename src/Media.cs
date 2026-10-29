@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -151,7 +151,7 @@ namespace Notchira
             catch { return null; }
         }
 
-        static Bitmap CoverCrop(Image img, int size)
+        internal static Bitmap CoverCrop(Image img, int size)
         {
             var bmp = new Bitmap(size, size);
             using (var g = Graphics.FromImage(bmp))

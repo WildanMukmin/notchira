@@ -4,7 +4,7 @@ Dynamic island ringan untuk Windows. Duduk di tepi atas layar sebagai notch keci
 
 Native C# (.NET Framework 4.8, tanpa SDK), tanpa browser engine. Dibangun dengan `csc.exe` bawaan Windows.
 
-## Status: v0.4
+## Status: v0.5
 
 Sudah ada:
 - Notch di tepi atas dengan animasi pegas; tiga ukuran: idle, ringkas (sedang memutar musik), dan terbuka.
@@ -38,6 +38,9 @@ Sudah ada:
   | Ctrl+Alt+P | Buka editor naskah |
   | Ctrl+Alt+X | Hentikan |
 
+- **Musik YouTube** (menu tray, Musik YouTube): tempel tautan, Notchira mengunduh **audio saja** (m4a) dengan yt-dlp, lalu memutarnya dengan pemutar bawaan. Ada perpustakaan lokal (`%APPDATA%\Notchira\music`), daftar putar, acak, dan ulang (mati / semua / satu). Lagu yang diputar tampil di island dengan sampul, bilah progres, dan tombol yang sama seperti musik dari aplikasi lain. Pemutar dibuat saat lagu mulai dan dibuang saat antrean habis, jadi tidak memakan memori saat diam.
+  - yt-dlp tidak ikut di repo. Saat pertama dipakai, klik **Pasang yt-dlp**: Notchira mengunduhnya dari rilis resmi GitHub (sekitar 25 MB) dan mencocokkan SHA-256-nya dengan daftar yang dirilis bersamanya. **Perbarui yt-dlp** memanggil `yt-dlp -U`, karena YouTube sering berubah.
+  - Hanya tautan `youtube.com` dan `youtu.be` yang diterima. Pakai untuk lagu yang kamu berhak mengunduh; unduhan dari YouTube tunduk pada ketentuan layanannya.
 - Tanpa gerak saat tidak ada yang berubah: bingkai digambar hanya selama animasi (10 ms saat island berubah ukuran, 33 ms saat hanya mata bergerak).
 
 ## Rencana
@@ -45,8 +48,7 @@ Sudah ada:
 | Versi | Isi |
 |---|---|
 | 0.3b | Mode Mini (sliver tembus klik) dan paket tema maskot dari PNG |
-| 0.5 | Musik dari YouTube: unduh audio dengan yt-dlp, pemutar bawaan, perpustakaan lokal dan daftar putar |
-| 0.6 | Teks lagu: LRCLIB, lalu caption YouTube, lalu Groq atau Deepgram; tampil 3 baris (sebelum, sekarang, berikutnya) |
+| 0.6 | Teks lagu untuk lagu YouTube: LRCLIB, lalu caption YouTube, lalu Groq atau Deepgram; tampil 3 baris (sebelum, sekarang, berikutnya) |
 | 0.7 | Asisten AI: banyak API key per penyedia dengan rotasi dan fallback; panggilan lewat API |
 | 1.0 | Pengaturan, bahasa ID/EN, navigasi keyboard, pembaca layar |
 
@@ -72,5 +74,5 @@ Hasilnya `Notchira.exe` di folder yang sama. Syarat: Windows 10 2004 atau lebih 
 Variabel lingkungan untuk pengembangan:
 
 - `NOTCHIRA_DIR=<folder>` pakai folder data lain dan izinkan instans kedua.
-- `NOTCHIRA_DEMO=idle|compact|expanded|toast|lyrics|sleepy|prompter|editor` tampilkan data palsu, tanpa membaca media.
+- `NOTCHIRA_DEMO=idle|compact|expanded|toast|lyrics|sleepy|prompter|editor|music|musicplay` tampilkan data palsu, tanpa membaca media.
 - `NOTCHIRA_DUMP=<folder>` simpan frame yang dirender sebagai PNG (dipakai bersama DEMO, lalu keluar).

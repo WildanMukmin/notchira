@@ -37,7 +37,7 @@ namespace Notchira
         readonly Eyes eyes = new Eyes();
         readonly Timer look = new Timer { Interval = 100 };
         readonly Timer blinkTimer = new Timer();
-        readonly Timer nodTimer = new Timer { Interval = 1300 };
+        readonly Timer nodTimer = new Timer { Interval = 2400 };
         readonly Timer sleepTimer = new Timer { Interval = 60000 };
         readonly Random rng = new Random();
         readonly Timer trimTimer = new Timer { Interval = 3000 };
@@ -119,11 +119,10 @@ namespace Notchira
             {
                 trimTimer.Stop();
                 long now = Environment.TickCount;
-                if (!anim.Enabled && cur != Mode.Expanded && now - lastTrim > 30000)
-                {
-                    lastTrim = now;
-                    Memory.Trim();
-                }
+                if (now - lastTrim <= 30000) return;
+                if (anim.Enabled || cur == Mode.Expanded) { trimTimer.Start(); return; }
+                lastTrim = now;
+                Memory.Trim();
             };
             blinkTimer.Tick += delegate
             {
@@ -136,6 +135,7 @@ namespace Notchira
             toastTimer.Tick += delegate { toastTimer.Stop(); toast = null; Retarget(); Render(); };
             lyricTimer.Tick += delegate { lyricTimer.Stop(); Render(); ScheduleLyric(); };
             media.Changed += OnTrack;
+            LocalPlayer.I.Changed += OnLocal;
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged += delegate { Setup(); Render(); };
         }
 
@@ -309,8 +309,7 @@ namespace Notchira
             if (!a && !b && !m)
             {
                 anim.Stop();
-                trimTimer.Stop();
-                trimTimer.Start();
+                if (!trimTimer.Enabled) trimTimer.Start();
                 return;
             }
             int want = (a || b) ? 10 : 33;
@@ -379,22 +378,38 @@ namespace Notchira
             blinkTimer.Start();
         }
 
+        TrackInfo smtcTrack, localTrack;
+
         void OnTrack(TrackInfo t)
         {
             if (IsDisposed || !IsHandleCreated) return;
-            BeginInvoke((Action)delegate
-            {
-                track = t;
-                Wake();
-                LoadLyrics(t);
-                pause.Stop();
-                pausedRecent = t != null && !t.Playing;
-                if (pausedRecent) pause.Start();
-                Retarget();
-                Render();
-            });
+            BeginInvoke((Action)delegate { smtcTrack = t; ApplyTrack(); });
         }
 
+        void OnLocal()
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            BeginInvoke((Action)delegate { localTrack = LocalPlayer.I.Snapshot(); ApplyTrack(); });
+        }
+
+        // The built-in player wins while it has a song; otherwise whatever Windows reports.
+        void ApplyTrack()
+        {
+            TrackInfo t = localTrack ?? smtcTrack;
+            track = t;
+            Wake();
+            LoadLyrics(t);
+            pause.Stop();
+            pausedRecent = t != null && !t.Playing;
+            if (pausedRecent) pause.Start();
+            Retarget();
+            Render();
+        }
+
+        void Toggle() { if (LocalPlayer.I.Active) LocalPlayer.I.Toggle(); else media.Toggle(); }
+        void SkipPrev() { if (LocalPlayer.I.Active) LocalPlayer.I.Prev(); else media.Prev(); }
+        void SkipNext() { if (LocalPlayer.I.Active) LocalPlayer.I.Next(); else media.Next(); }
+        void SeekTo(TimeSpan t) { if (LocalPlayer.I.Active) LocalPlayer.I.Seek(t); else media.Seek(t); }
         void OnSlow()
         {
             int st;
@@ -457,13 +472,13 @@ namespace Notchira
             if (e.Button != MouseButtons.Left || cur != Mode.Expanded || track == null) return;
             if (sh.X < ExpSize.Height - 20) return;
             float x = e.X / S, y = e.Y / S, ex = (MaxW - ExpSize.Width) / 2f, cx = ex + TextX + TextW / 2;
-            if (Dist(x, y, cx, BtnY) < 20) { Ping("click"); media.Toggle(); }
-            else if (Dist(x, y, cx - 46, BtnY) < 18) { Ping("click"); media.Prev(); }
-            else if (Dist(x, y, cx + 46, BtnY) < 18) { Ping("click"); media.Next(); }
+            if (Dist(x, y, cx, BtnY) < 20) { Ping("click"); Toggle(); }
+            else if (Dist(x, y, cx - 46, BtnY) < 18) { Ping("click"); SkipPrev(); }
+            else if (Dist(x, y, cx + 46, BtnY) < 18) { Ping("click"); SkipNext(); }
             else if (y > BarY - 10 && y < BarY + 14 && x >= ex + TextX && x <= ex + TextX + TextW && track.Duration > TimeSpan.Zero)
             {
                 double f = (x - (ex + TextX)) / TextW;
-                media.Seek(TimeSpan.FromTicks((long)(track.Duration.Ticks * f)));
+                SeekTo(TimeSpan.FromTicks((long)(track.Duration.Ticks * f)));
             }
         }
 
@@ -777,6 +792,8 @@ namespace Notchira
             };
             miSound = new ToolStripMenuItem("Efek suara");
             miSound.Click += delegate { Settings.Set("sound", Settings.Get("sound", "1") == "1" ? "0" : "1"); };
+            var miMusic = new ToolStripMenuItem("Musik YouTube...");
+            miMusic.Click += delegate { MusicWindow.ShowWindow(); };
             var miPrompter = new ToolStripMenuItem("Teleprompter...");
             miPrompter.Click += delegate { Teleprompter.ShowEditor(); };
             miAuto = new ToolStripMenuItem("Mulai bersama Windows");
@@ -788,7 +805,7 @@ namespace Notchira
             };
             var miQuit = new ToolStripMenuItem("Keluar");
             miQuit.Click += delegate { Application.Exit(); };
-            menu.Items.AddRange(new ToolStripItem[] { miHide, miPrompter, mat, miLyrics, miSound, miAuto, miFolder, new ToolStripSeparator(), miQuit });
+            menu.Items.AddRange(new ToolStripItem[] { miHide, miMusic, miPrompter, mat, miLyrics, miSound, miAuto, miFolder, new ToolStripSeparator(), miQuit });
             menu.Opening += delegate
             {
                 miHide.Text = (userHidden ? "Tampilkan island" : "Sembunyikan island") + "\tCtrl+Alt+H";
@@ -862,8 +879,79 @@ namespace Notchira
 
         // ---- dev hooks: NOTCHIRA_DEMO=idle|compact|expanded, NOTCHIRA_DUMP=<folder> ----------------------------
 
+        // Dev hook: install yt-dlp if needed, download NOTCHIRA_TEST_URL, play it, log and dump a frame.
+        void DemoMusic()
+        {
+            string dir = Environment.GetEnvironmentVariable("NOTCHIRA_DUMP");
+            Directory.CreateDirectory(dir);
+            Action<string> log = s => File.AppendAllText(Path.Combine(dir, "music.log"), s + Environment.NewLine);
+            string testUrl = Environment.GetEnvironmentVariable("NOTCHIRA_TEST_URL");
+            var ctx = System.Threading.SynchronizationContext.Current;
+            Action finish = delegate { LocalPlayer.I.Stop(); Application.Exit(); };
+            Action<Song> play = delegate(Song song)
+            {
+                Library.Add(song);
+                LocalPlayer.I.PlayList(Library.All(), 0);
+                hover = true;
+                Retarget();
+                var t = new Timer { Interval = 1500 };
+                int step = 0;
+                t.Tick += delegate
+                {
+                    step++;
+                    var s = LocalPlayer.I.Snapshot();
+                    log("step " + step + ": active=" + LocalPlayer.I.Active + " playing=" + (s != null && s.Playing) +
+                        " pos=" + (s == null ? "-" : s.Position.TotalSeconds.ToString("0.0")) + " dur=" + (s == null ? "-" : s.Duration.TotalSeconds.ToString("0.0")));
+                    if (step == 1) LocalPlayer.I.Toggle();
+                    if (step == 2) LocalPlayer.I.Toggle();
+                    if (step == 3) { LocalPlayer.I.Seek(TimeSpan.FromSeconds(10)); }
+                    if (step == 4) { Render(); frame.Save(Path.Combine(dir, "frame-music.png"), ImageFormat.Png); }
+                    if (step >= 5) { t.Stop(); finish(); }
+                };
+                t.Start();
+            };
+            Action dl = delegate
+            {
+                YtDlp.Download(testUrl, p => { }, (song, err) => ctx.Post(_ =>
+                {
+                    if (song == null) { log("download failed: " + err); finish(); return; }
+                    log("downloaded: " + song.Title + " / " + song.Artist + " / " + song.Seconds + "s, thumb=" + File.Exists(song.ThumbPath));
+                    play(song);
+                }, null));
+            };
+            if (!YtDlp.Installed)
+                YtDlp.Install(m => log(m), (ok, m) => ctx.Post(_ => { log("install: " + m); if (ok) dl(); else finish(); }, null));
+            else dl();
+        }
+
         void StartDemo(string mode)
         {
+            if (mode == "music") { DemoMusic(); return; }
+            if (mode == "musicplay")
+            {
+                string dir2 = Environment.GetEnvironmentVariable("NOTCHIRA_DUMP");
+                LocalPlayer.I.PlayList(Library.All(), 0);
+                var proc = System.Diagnostics.Process.GetCurrentProcess();
+                TimeSpan cpu0 = TimeSpan.Zero;
+                int n = 0;
+                var mt = new Timer { Interval = 10000 };
+                mt.Tick += delegate
+                {
+                    n++;
+                    proc.Refresh();
+                    if (n == 1) cpu0 = proc.TotalProcessorTime;
+                    if (n == 4)
+                    {
+                        double ms = (proc.TotalProcessorTime - cpu0).TotalMilliseconds;
+                        File.WriteAllText(Path.Combine(dir2, "musicplay.log"), string.Format("playing 30s: cpu={0:N0} ms ({1:N2}% of one core), WS={2} MB, private={3} MB{4}",
+                            ms, ms / 300.0, proc.WorkingSet64 / 1048576, proc.PrivateMemorySize64 / 1048576, Environment.NewLine));
+                        LocalPlayer.I.Stop();
+                        Application.Exit();
+                    }
+                };
+                mt.Start();
+                return;
+            }
             if (mode == "editor")
             {
                 Teleprompter.DemoEditor(Environment.GetEnvironmentVariable("NOTCHIRA_DUMP"));
