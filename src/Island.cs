@@ -106,6 +106,7 @@ namespace Notchira
             TopMost = true;
             Text = "Notchira";
             material = Settings.Get("material", "liquid");
+            Current = this;
 
             BuildTray();
             anim.Tick += OnAnim;
@@ -241,6 +242,7 @@ namespace Notchira
 
         void ShowToast(Notify.Message m)
         {
+            if (Teleprompter.Open) return;
             bool update = toast != null && m.Progress >= 0 && m.Id.Length > 0 && toast.Id == m.Id;
             long now = Environment.TickCount;
             if (!update && now - lastToastTick < 500) return;
@@ -405,9 +407,14 @@ namespace Notchira
 
         void ToggleHidden() { userHidden = !userHidden; ApplyVisible(); }
 
+        public static Island Current;
+
+        // The prompter takes over the top edge, so the island steps aside while it is open.
+        public void RefreshVisible() { ApplyVisible(); }
+
         void ApplyVisible()
         {
-            bool want = !userHidden && !fsHidden;
+            bool want = !userHidden && !fsHidden && !Teleprompter.Open;
             if (want == Visible) return;
             Visible = want;
             if (want) { CaptureBackdrop(); Render(); }
@@ -502,7 +509,7 @@ namespace Notchira
         static float Clamp01(float v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
         static Color Wh(float a, int baseAlpha) { return Color.FromArgb((int)(baseAlpha * Clamp01(a)), 255, 255, 255); }
 
-        static GraphicsPath NotchPath(float x, float w, float h, float r)
+        internal static GraphicsPath NotchPath(float x, float w, float h, float r)
         {
             r = Math.Min(r, Math.Min(w, h) / 2);
             const float top = -2;
@@ -770,6 +777,8 @@ namespace Notchira
             };
             miSound = new ToolStripMenuItem("Efek suara");
             miSound.Click += delegate { Settings.Set("sound", Settings.Get("sound", "1") == "1" ? "0" : "1"); };
+            var miPrompter = new ToolStripMenuItem("Teleprompter...");
+            miPrompter.Click += delegate { Teleprompter.ShowEditor(); };
             miAuto = new ToolStripMenuItem("Mulai bersama Windows");
             miAuto.Click += delegate { SetAutostart(!IsAutostart()); };
             var miFolder = new ToolStripMenuItem("Buka folder data");
@@ -779,7 +788,7 @@ namespace Notchira
             };
             var miQuit = new ToolStripMenuItem("Keluar");
             miQuit.Click += delegate { Application.Exit(); };
-            menu.Items.AddRange(new ToolStripItem[] { miHide, mat, miLyrics, miSound, miAuto, miFolder, new ToolStripSeparator(), miQuit });
+            menu.Items.AddRange(new ToolStripItem[] { miHide, miPrompter, mat, miLyrics, miSound, miAuto, miFolder, new ToolStripSeparator(), miQuit });
             menu.Opening += delegate
             {
                 miHide.Text = (userHidden ? "Tampilkan island" : "Sembunyikan island") + "\tCtrl+Alt+H";
@@ -855,6 +864,16 @@ namespace Notchira
 
         void StartDemo(string mode)
         {
+            if (mode == "editor")
+            {
+                Teleprompter.DemoEditor(Environment.GetEnvironmentVariable("NOTCHIRA_DUMP"));
+                return;
+            }
+            if (mode == "prompter")
+            {
+                Teleprompter.Demo(Environment.GetEnvironmentVariable("NOTCHIRA_DUMP"));
+                return;
+            }
             if (mode == "sleepy") { asleep = true; UpdateMood(); }
             if (mode != "idle" && mode != "toast" && mode != "sleepy")
             {

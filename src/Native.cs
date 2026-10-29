@@ -37,5 +37,42 @@ namespace Notchira
         [DllImport("shell32.dll")] public static extern int SHQueryUserNotificationState(out int state);
         [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr icon);
         [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
+        [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] static extern IntPtr SetWindowLongPtr(IntPtr hwnd, int index, IntPtr value);
+
+        public const int WS_EX_TRANSPARENT = 0x20;
+
+        // Click-through on or off for a layered window.
+        public static void SetClickThrough(IntPtr hwnd, bool on)
+        {
+            long ex = GetWindowLongPtr(hwnd, -20).ToInt64();
+            long want = on ? (ex | WS_EX_TRANSPARENT) : (ex & ~(long)WS_EX_TRANSPARENT);
+            if (want != ex) SetWindowLongPtr(hwnd, -20, new IntPtr(want));
+        }
+
+        // Pushes a premultiplied 32-bit bitmap to a layered window at the given screen position.
+        public static void Present(IntPtr hwnd, System.Drawing.Bitmap frame, int x, int y)
+        {
+            IntPtr screenDc = GetDC(IntPtr.Zero);
+            IntPtr memDc = CreateCompatibleDC(screenDc);
+            IntPtr hBmp = IntPtr.Zero, old = IntPtr.Zero;
+            try
+            {
+                hBmp = frame.GetHbitmap(System.Drawing.Color.FromArgb(0));
+                old = SelectObject(memDc, hBmp);
+                var size = new SIZE { cx = frame.Width, cy = frame.Height };
+                var src = new POINT();
+                var dst = new POINT { x = x, y = y };
+                var bf = new BLENDFUNCTION { BlendOp = 0, BlendFlags = 0, SourceConstantAlpha = 255, AlphaFormat = 1 };
+                UpdateLayeredWindow(hwnd, screenDc, ref dst, ref size, memDc, ref src, 0, ref bf, 2);
+            }
+            finally
+            {
+                if (old != IntPtr.Zero) SelectObject(memDc, old);
+                if (hBmp != IntPtr.Zero) DeleteObject(hBmp);
+                DeleteDC(memDc);
+                ReleaseDC(IntPtr.Zero, screenDc);
+            }
+        }
     }
 }
