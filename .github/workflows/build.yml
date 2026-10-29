@@ -1,0 +1,27 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Notchira.exe
+        shell: cmd
+        run: build.cmd
+      - name: SHA-256
+        shell: pwsh
+        run: (Get-FileHash Notchira.exe -Algorithm SHA256).Hash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Notchira
+          path: Notchira.exe
+          if-no-files-found: error
