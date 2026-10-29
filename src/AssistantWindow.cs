@@ -100,7 +100,7 @@ namespace Notchira
         void ShowModel()
         {
             var p = Ai.Find(((Item)providers.SelectedItem).Id);
-            status.Text = "Model: " + Ai.Model(p) + (Secrets.Has(p.Id) || p.KeyOptional ? "" : "  (belum ada kunci: klik Kunci...)");
+            status.Text = "Model: " + Ai.Model(p) + (Secrets.Has(p.Id) ? "" : "  (belum ada kunci: klik Kunci...)");
         }
 
         void Render()

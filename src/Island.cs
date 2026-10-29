@@ -17,6 +17,7 @@ namespace Notchira
     {
         const float MaxW = 460, MaxH = 200;
         static readonly SizeF IdleSize = new SizeF(96, 24);
+        static readonly SizeF MiniSize = new SizeF(56, 11);
         static readonly SizeF CompSize = new SizeF(250, 32);
         static readonly SizeF ExpSize = new SizeF(440, 140);
         const float TextX = 130, TextW = 292;
@@ -29,7 +30,7 @@ namespace Notchira
 
         static readonly SizeF ToastSize = new SizeF(300, 56);
 
-        enum Mode { Idle, Compact, Toast, Expanded }
+        enum Mode { Idle, Compact, Toast, Expanded, Mini }
 
         sealed class ToastInfo { public string Title, Body, Id; public int Progress = -1; }
         ToastInfo toast;
@@ -47,6 +48,11 @@ namespace Notchira
         readonly Timer sleepTimer = new Timer { Interval = 60000 };
         readonly Random rng = new Random();
         readonly Timer trimTimer = new Timer { Interval = 3000 };
+        readonly Timer miniTimer = new Timer();
+        bool miniOn, covered;
+        int coverVotes, wakeVotes;
+        long holdUntil, lastActivity = Environment.TickCount;
+        uint myPid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
         long lastTrim;
         bool asleep, quiet;
         long lastSound;
@@ -83,7 +89,7 @@ namespace Notchira
 
         NotifyIcon tray;
         ContextMenuStrip menu;
-        ToolStripMenuItem miHide, miLiquid, miSolid, miAuto, miLyrics, miSound;
+        ToolStripMenuItem miHide, miLiquid, miSolid, miAuto, miLyrics, miSound, miNormal, miMini, miAutoMini, miMiniNotif;
 
         static readonly Font fTitle = new Font("Segoe UI", 15f, FontStyle.Bold, GraphicsUnit.Pixel);
         static readonly Font fLyric = new Font("Segoe UI Semibold", 14.5f, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -118,7 +124,8 @@ namespace Notchira
             BuildTray();
             anim.Tick += OnAnim;
             tick.Tick += delegate { tickCount++; if (tickCount % 2 == 0) CaptureBackdrop(); Render(); };
-            leave.Tick += delegate { leave.Stop(); hover = false; Retarget(); };
+            leave.Tick += delegate { leave.Stop(); hover = false; HoldThenMini(); Retarget(); };
+            miniTimer.Tick += delegate { miniTimer.Stop(); Retarget(); };
             slow.Tick += delegate { OnSlow(); };
             pause.Tick += delegate { pause.Stop(); pausedRecent = false; Retarget(); };
             look.Tick += delegate { OnLook(); };
@@ -180,6 +187,7 @@ namespace Notchira
             glassOk = Native.SetWindowDisplayAffinity(Handle, Native.WDA_EXCLUDEFROMCAPTURE);
             Native.RegisterHotKey(Handle, 1, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x48);
             Native.RegisterHotKey(Handle, 2, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x41);
+            Native.RegisterHotKey(Handle, 3, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x4B);
             Setup();
         }
 
@@ -203,6 +211,7 @@ namespace Notchira
         {
             Native.UnregisterHotKey(Handle, 1);
             Native.UnregisterHotKey(Handle, 2);
+            Native.UnregisterHotKey(Handle, 3);
             tray.Visible = false;
             tray.Dispose();
             base.OnFormClosed(e);
@@ -212,7 +221,8 @@ namespace Notchira
         {
             if (m.Msg == Native.WM_HOTKEY)
             {
-                if ((int)m.WParam == 2) AssistantWindow.ShowWindow(); else ToggleHidden();
+                int id = (int)m.WParam;
+                if (id == 2) AssistantWindow.ShowWindow(); else if (id == 3) ToggleMini(); else ToggleHidden();
                 return;
             }
             base.WndProc(ref m);
@@ -238,6 +248,7 @@ namespace Notchira
         {
             if (hover) return Mode.Expanded;
             if (toast != null) return Mode.Toast;
+            if (miniOn && Environment.TickCount > holdUntil) return Mode.Mini;
             if (track != null && (track.Playing || pausedRecent)) return Mode.Compact;
             return Mode.Idle;
         }
@@ -248,11 +259,12 @@ namespace Notchira
             if (m != cur)
             {
                 cur = m;
+                if (IsHandleCreated) Native.SetClickThrough(Handle, m == Mode.Mini);
                 CaptureBackdrop();
                 tick.Enabled = m == Mode.Expanded;
                 tickCount = 0;
             }
-            SizeF z = m == Mode.Idle ? IdleSize : m == Mode.Compact ? CompSize : m == Mode.Toast ? ToastSize : new SizeF(ExpSize.Width, ExpH);
+            SizeF z = m == Mode.Mini ? MiniSize : m == Mode.Idle ? IdleSize : m == Mode.Compact ? CompSize : m == Mode.Toast ? ToastSize : new SizeF(ExpSize.Width, ExpH);
             sw.T = z.Width;
             sh.T = z.Height;
             if (!anim.Enabled) Kick();
@@ -272,6 +284,7 @@ namespace Notchira
         void ShowToast(Notify.Message m)
         {
             if (Teleprompter.Open) return;
+            if (miniOn && Settings.Get("mini.notif", "1") != "1") return;
             bool update = toast != null && m.Progress >= 0 && m.Id.Length > 0 && toast.Id == m.Id;
             long now = Environment.TickCount;
             if (!update && now - lastToastTick < 500) return;
@@ -385,6 +398,7 @@ namespace Notchira
 
         void Wake()
         {
+            lastActivity = Environment.TickCount;
             sleepTimer.Stop();
             sleepTimer.Start();
             if (asleep) { asleep = false; UpdateMood(); }
@@ -425,8 +439,10 @@ namespace Notchira
 
         void OnLook()
         {
-            if (!Visible || lookLocked) return;
+            if (!Visible) return;
             var p = Cursor.Position;
+            UpdateMiniState(p);
+            if (lookLocked) return;
             float ex = Left + (MaxW / 2f) * S, ey = Top + 14 * S;
             float tx = Clamp01(Math.Abs(p.X - ex) / (260 * S)) * Math.Sign(p.X - ex);
             float ty = Clamp01(Math.Abs(p.Y - ey) / (260 * S)) * Math.Sign(p.Y - ey);
@@ -436,6 +452,97 @@ namespace Notchira
             Kick();
         }
 
+        // ---- mini mode --------------------------------------------------------------------------------------
+        // The island shrinks to a click-through sliver at the top edge so it never covers a tab bar. Normal keeps it
+        // as it is, Mini always shrinks, Auto shrinks while a window covers the top edge or after a minute of calm.
+
+        bool MiniWanted()
+        {
+            string m = Settings.Get("mini", "auto");
+            if (m == "mini") return true;
+            if (m == "normal") return false;
+            if (covered) return true;
+            return Environment.TickCount - lastActivity > 60000 && !thinking && toast == null;
+        }
+
+        // Runs from the 10 Hz look timer, because a click-through window gets no mouse events of its own.
+        void UpdateMiniState(Point cursor)
+        {
+            if (Settings.Get("mini", "auto") == "auto")
+            {
+                bool c = TopCovered();
+                coverVotes = c == covered ? 0 : coverVotes + 1;
+                if (coverVotes >= 5) { covered = c; coverVotes = 0; }
+            }
+            bool want = MiniWanted();
+            if (want != miniOn)
+            {
+                miniOn = want;
+                if (!miniOn) holdUntil = 0;
+                Retarget();
+            }
+
+            if (cur == Mode.Mini)
+            {
+                float cx = Left + (MaxW / 2f) * S;
+                bool zone = cursor.Y <= Top + MiniSize.Height * S && Math.Abs(cursor.X - cx) <= (MiniSize.Width / 2f) * S;
+                wakeVotes = zone ? wakeVotes + 1 : 0;
+                if (wakeVotes >= 5)
+                {
+                    wakeVotes = 0;
+                    hover = true;
+                    holdUntil = 0;
+                    Wake();
+                    Retarget();
+                }
+            }
+            else if (hover)
+            {
+                // the pointer may never have entered the window (it grew under a resting cursor)
+                float x0 = Left + ((MaxW - sw.X) / 2f) * S;
+                bool inside = cursor.X >= x0 && cursor.X <= x0 + sw.X * S && cursor.Y <= Top + sh.X * S;
+                if (inside) leave.Stop(); else if (!leave.Enabled) leave.Start();
+            }
+        }
+
+        void HoldThenMini()
+        {
+            if (!miniOn) return;
+            holdUntil = Environment.TickCount + 1500;
+            miniTimer.Stop();
+            miniTimer.Interval = 1600;
+            miniTimer.Start();
+        }
+
+        void SetMiniSetting(string mode)
+        {
+            Settings.Set("mini", mode);
+            if (mode == "mini") { hover = false; leave.Stop(); holdUntil = 0; }
+            lastActivity = Environment.TickCount;
+            UpdateMiniState(Cursor.Position);
+            Retarget();
+        }
+
+        void ToggleMini() { SetMiniSetting(miniOn ? "normal" : "mini"); }
+
+        // True when a window from another app reaches the top edge over the island.
+        bool TopCovered()
+        {
+            IntPtr h = Native.GetForegroundWindow();
+            if (h == IntPtr.Zero || h == Handle) return false;
+            uint pid;
+            Native.GetWindowThreadProcessId(h, out pid);
+            if (pid == myPid || !Native.IsWindowVisible(h) || Native.IsIconic(h)) return false;
+            var cls = new System.Text.StringBuilder(64);
+            Native.GetClassName(h, cls, 64);
+            string c = cls.ToString();
+            if (c == "Progman" || c == "WorkerW" || c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd") return false;
+            Native.RECT r;
+            if (!Native.GetWindowRect(h, out r)) return false;
+            var b = Screen.PrimaryScreen.Bounds;
+            float cx = b.Left + b.Width / 2f;
+            return r.Top <= b.Top + 2 && r.Left <= cx && r.Right >= cx;
+        }
         void ScheduleBlink()
         {
             blinkTimer.Interval = rng.Next(2500, 6500);
@@ -536,6 +643,7 @@ namespace Notchira
             if (e.Button != MouseButtons.Left || cur != Mode.Expanded || track == null) return;
             if (sh.X < ExpH - 20) return;
             float x = e.X / S, y = e.Y / S, ex = (MaxW - ExpSize.Width) / 2f, cx = ex + TextX + TextW / 2;
+            if (Dist(x, y, ex + 15, 14) < 11) { SetMiniSetting("mini"); return; }
             if (Dist(x, y, cx, BtnY) < 20) { Ping("click"); Toggle(); }
             else if (Dist(x, y, cx - 46, BtnY) < 18) { Ping("click"); SkipPrev(); }
             else if (Dist(x, y, cx + 46, BtnY) < 18) { Ping("click"); SkipNext(); }
@@ -672,7 +780,8 @@ namespace Notchira
             float tExp = Clamp01((h - CompSize.Height) / (ExpH - CompSize.Height));
             float tCmp = Clamp01((w - 120) / (CompSize.Width - 120)) * (1 - tExp);
             float tIdle = (1 - Clamp01((w - 100) / 50)) * (1 - tExp);
-            eyes.Draw(g, MaxW / 2f, 12, 1.2f, tIdle);
+            float km = Clamp01((h - MiniSize.Height) / (IdleSize.Height - MiniSize.Height));
+            eyes.Draw(g, MaxW / 2f, MiniSize.Height / 2f * (1 - km) + 12f * km, 0.5f * (1 - km) + 1.2f * km, tIdle);
             if (tCmp > 0.02f && track != null) DrawCompact(g, x0, w, tCmp);
             if (tExp > 0.02f) DrawExpanded(g, x0, tExp * tExp);
         }
@@ -712,6 +821,11 @@ namespace Notchira
 
         void DrawExpanded(Graphics g, float ex, float a)
         {
+            using (var pen = new Pen(Wh(a, 150), 1.8f))
+            {
+                pen.StartCap = pen.EndCap = LineCap.Round;
+                g.DrawLines(pen, new[] { new PointF(ex + 10, 17), new PointF(ex + 15, 12), new PointF(ex + 20, 17) });
+            }
             eyes.Draw(g, ex + ExpSize.Width - 36, 20, 0.95f, a);
             if (track == null)
             {
@@ -867,6 +981,16 @@ namespace Notchira
             };
             miSound = new ToolStripMenuItem("Efek suara");
             miSound.Click += delegate { Settings.Set("sound", Settings.Get("sound", "1") == "1" ? "0" : "1"); };
+            var modeMenu = new ToolStripMenuItem("Mode island");
+            miNormal = new ToolStripMenuItem("Normal");
+            miNormal.Click += delegate { SetMiniSetting("normal"); };
+            miMini = new ToolStripMenuItem("Mini\tCtrl+Alt+K");
+            miMini.Click += delegate { SetMiniSetting("mini"); };
+            miAutoMini = new ToolStripMenuItem("Otomatis");
+            miAutoMini.Click += delegate { SetMiniSetting("auto"); };
+            miMiniNotif = new ToolStripMenuItem("Notifikasi tetap muncul saat Mini");
+            miMiniNotif.Click += delegate { Settings.Set("mini.notif", Settings.Get("mini.notif", "1") == "1" ? "0" : "1"); };
+            modeMenu.DropDownItems.AddRange(new ToolStripItem[] { miNormal, miMini, miAutoMini, new ToolStripSeparator(), miMiniNotif });
             var miAssistant = new ToolStripMenuItem("Asisten AI...\tCtrl+Alt+A");
             miAssistant.Click += delegate { AssistantWindow.ShowWindow(); };
             var miMusic = new ToolStripMenuItem("Musik YouTube...");
@@ -882,7 +1006,7 @@ namespace Notchira
             };
             var miQuit = new ToolStripMenuItem("Keluar");
             miQuit.Click += delegate { Application.Exit(); };
-            menu.Items.AddRange(new ToolStripItem[] { miHide, miAssistant, miMusic, miPrompter, mat, miLyrics, miSound, miAuto, miFolder, new ToolStripSeparator(), miQuit });
+            menu.Items.AddRange(new ToolStripItem[] { miHide, modeMenu, miAssistant, miMusic, miPrompter, mat, miLyrics, miSound, miAuto, miFolder, new ToolStripSeparator(), miQuit });
             menu.Opening += delegate
             {
                 miHide.Text = (userHidden ? "Tampilkan island" : "Sembunyikan island") + "\tCtrl+Alt+H";
@@ -890,6 +1014,11 @@ namespace Notchira
                 miSolid.Checked = material != "liquid";
                 miLyrics.Checked = Settings.Get("lyrics.online", "1") == "1";
                 miSound.Checked = Settings.Get("sound", "1") == "1";
+                string mm = Settings.Get("mini", "auto");
+                miNormal.Checked = mm == "normal";
+                miMini.Checked = mm == "mini";
+                miAutoMini.Checked = mm == "auto";
+                miMiniNotif.Checked = Settings.Get("mini.notif", "1") == "1";
                 miAuto.Checked = IsAutostart();
             };
             ContextMenuStrip = menu;
@@ -956,6 +1085,68 @@ namespace Notchira
 
         // ---- dev hooks: NOTCHIRA_DEMO=idle|compact|expanded, NOTCHIRA_DUMP=<folder> ----------------------------
 
+        string ForegroundInfo()
+        {
+            IntPtr h = Native.GetForegroundWindow();
+            var cls = new System.Text.StringBuilder(64);
+            Native.GetClassName(h, cls, 64);
+            Native.RECT r;
+            Native.GetWindowRect(h, out r);
+            return "foreground=" + cls + " rect=" + r.Left + "," + r.Top + "," + r.Right + "," + r.Bottom + " TopCovered=" + TopCovered() + " covered=" + covered;
+        }
+
+        // Dev hook: NOTCHIRA_DEMO=mini drives the mini mode with the real cursor and logs what happened.
+        void DemoMini()
+        {
+            string dir = Environment.GetEnvironmentVariable("NOTCHIRA_DUMP");
+            Directory.CreateDirectory(dir);
+            Action<string> log = s => File.AppendAllText(Path.Combine(dir, "mini.log"), s + Environment.NewLine);
+            Action<string> shot = name =>
+            {
+                Render();
+                frame.Save(Path.Combine(dir, name + ".png"), ImageFormat.Png);
+                log(name + ": mode=" + cur + " size=" + sw.X.ToString("0") + "x" + sh.X.ToString("0") + " clickThrough=" + Native.IsClickThrough(Handle) + " hover=" + hover + " | " + ForegroundInfo());
+            };
+            var scr = Screen.PrimaryScreen.Bounds;
+            int cx = scr.Left + scr.Width / 2;
+            Settings.Set("mini", "mini");
+            int step = 0;
+            var t = new Timer { Interval = 1000 };
+            Form cover = null;
+            t.Tick += delegate
+            {
+                step++;
+                switch (step)
+                {
+                    case 1: Cursor.Position = new Point(cx + 400, 500); break;
+                    case 2: shot("mini-1-sliver"); Cursor.Position = new Point(cx, 3); break;
+                    case 3: shot("mini-2-woken"); Cursor.Position = new Point(cx + 400, 500); break;
+                    case 4: shot("mini-3-holding"); break;
+                    case 6: shot("mini-4-returned"); Settings.Set("mini", "normal"); break;
+                    case 7: shot("mini-5-normal"); Settings.Set("mini", "auto"); break;
+                    case 8:
+                        shot("mini-6-auto-idle");
+                        cover = new Form { WindowState = FormWindowState.Maximized, Text = "cover", ShowInTaskbar = false };
+                        cover.Show();
+                        Native.keybd_event(0x12, 0, 0, UIntPtr.Zero);
+                        Native.keybd_event(0x12, 0, 2, UIntPtr.Zero);
+                        cover.Activate();
+                        break;
+                    case 11:
+                        log("foreground is the cover window: " + (Native.GetForegroundWindow() == cover.Handle) + ", covered=" + covered);
+                        shot("mini-7-auto-covered");
+                        cover.Close();
+                        break;
+                    case 14:
+                        log("after the cover closed: covered=" + covered);
+                        shot("mini-8-uncovered");
+                        t.Stop();
+                        Application.Exit();
+                        break;
+                }
+            };
+            t.Start();
+        }
         // Dev hook: install yt-dlp if needed, download NOTCHIRA_TEST_URL, play it, log and dump a frame.
         void DemoMusic()
         {
@@ -1037,6 +1228,7 @@ namespace Notchira
                 return;
             }
             if (mode == "musicwin") { MusicWindow.Demo(Environment.GetEnvironmentVariable("NOTCHIRA_DUMP")); return; }
+            if (mode == "mini") { DemoMini(); return; }
             if (mode == "music") { DemoMusic(); return; }
             if (mode == "musicplay")
             {

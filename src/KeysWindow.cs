@@ -89,7 +89,7 @@ namespace Notchira
             transcribe.Checked = Settings.Get("transcribe.auto", "1") == "1";
             transcribe.CheckedChanged += delegate { if (!loading) Settings.Set("transcribe.auto", transcribe.Checked ? "1" : "0"); };
 
-            note.Text = "Kunci disimpan terenkripsi di akun Windows ini dan tidak pernah ditampilkan utuh. Kunci kosong hanya untuk server lokal.";
+            note.Text = "Kunci disimpan terenkripsi di akun Windows ini dan tidak pernah ditampilkan utuh.";
             note.SetBounds(12, 384, 576, 32);
             note.ForeColor = SystemColors.GrayText;
             note.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;

@@ -111,7 +111,7 @@ namespace Notchira
             Action<string, string, string> onSwitch = (p, f, t) => { switches++; L("  event: key " + p + " \"" + f + "\" rested, next=" + (t ?? "none")); };
             Secrets.Switched += onSwitch;
 
-            foreach (string p in new[] { "groq", "gemini", "anthropic", "openai", "custom" }) SetKeys(p);
+            foreach (string p in new[] { "groq", "gemini" }) SetKeys(p);
 
             SetKeys("groq", "badkey", "goodkey");
             var r = Ai.Ask(hist, "sistem", "groq", false);
@@ -129,16 +129,9 @@ namespace Notchira
             try { Ai.Ask(hist, "sistem", "gemini", false); L("T3 UNEXPECTED success"); }
             catch (Exception ex) { L("T3 gemini, fallback off: error=\"" + ex.Message + "\""); }
 
-            SetKeys("anthropic", "antkey");
-            r = Ai.Ask(hist, "sistem", "anthropic", false);
-            L("T4 anthropic: text=\"" + r.Text + "\" provider=" + r.Provider);
-
-            r = Ai.Ask(hist, "sistem", "custom", false);
-            L("T5 custom without key: text=\"" + r.Text + "\" provider=" + r.Provider);
-
-            try { Ai.Ask(hist, "sistem", "openai", false); L("T6 UNEXPECTED success"); }
-            catch (Exception ex) { L("T6 no key: error=\"" + ex.Message + "\""); }
-
+            SetKeys("gemini");
+            try { Ai.Ask(hist, "sistem", "gemini", false); L("T4 UNEXPECTED success"); }
+            catch (Exception ex) { L("T4 gemini without any key: error=\"" + ex.Message + "\""); }
             // old single-line key format still loads
             string legacy = Convert.ToBase64String(System.Security.Cryptography.ProtectedData.Protect(Encoding.UTF8.GetBytes("old1\nold2"), null, System.Security.Cryptography.DataProtectionScope.CurrentUser));
             string file = Path.Combine(Settings.Dir, "keys.dat");
@@ -147,9 +140,9 @@ namespace Notchira
             L("T8 legacy format: " + li.Count + " keys, labels=" + string.Join(",", li.ConvertAll(x => x.Label).ToArray()));
 
             string raw = File.ReadAllText(file);
-            L("T9 keys.dat holds no plaintext: " + (!raw.Contains("goodkey") && !raw.Contains("antkey") && !raw.Contains("quotakey")));
+            L("T9 keys.dat holds no plaintext: " + (!raw.Contains("goodkey") && !raw.Contains("badkey") && !raw.Contains("old1")));
             Secrets.Switched -= onSwitch;
-            foreach (string p in new[] { "groq", "gemini", "anthropic", "openai", "custom", "legacy", "deepgram" }) SetKeys(p);
+            foreach (string p in new[] { "groq", "gemini", "legacy", "deepgram" }) SetKeys(p);
             http.Stop();
         }
 

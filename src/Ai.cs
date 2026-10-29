@@ -12,7 +12,6 @@ namespace Notchira
     sealed class AiProvider
     {
         public string Id, Name, Kind, DefaultBase, DefaultModel;
-        public bool KeyOptional;
     }
 
     sealed class AiMessage
@@ -27,17 +26,14 @@ namespace Notchira
         public string Text, Provider, KeyLabel;
     }
 
-    // Chat over three wire formats (OpenAI-compatible, Gemini, Anthropic). Keys come from the key ring, and when
+    // Chat with Groq (OpenAI-style API) and Gemini. Keys come from the key ring, and when
     // every key of a provider is resting or rejected the next provider with keys answers instead.
     static class Ai
     {
         public static readonly AiProvider[] Providers =
         {
             new AiProvider { Id = "groq", Name = "Groq", Kind = "openai", DefaultBase = "https://api.groq.com/openai/v1", DefaultModel = "llama-3.3-70b-versatile" },
-            new AiProvider { Id = "gemini", Name = "Gemini", Kind = "gemini", DefaultBase = "https://generativelanguage.googleapis.com/v1beta", DefaultModel = "gemini-2.5-flash" },
-            new AiProvider { Id = "openai", Name = "OpenAI", Kind = "openai", DefaultBase = "https://api.openai.com/v1", DefaultModel = "gpt-4o-mini" },
-            new AiProvider { Id = "anthropic", Name = "Anthropic", Kind = "anthropic", DefaultBase = "https://api.anthropic.com/v1", DefaultModel = "claude-haiku-5-5" },
-            new AiProvider { Id = "custom", Name = "Kustom (OpenAI-compatible)", Kind = "openai", DefaultBase = "http://localhost:11434/v1", DefaultModel = "llama3.2", KeyOptional = true }
+            new AiProvider { Id = "gemini", Name = "Gemini", Kind = "gemini", DefaultBase = "https://generativelanguage.googleapis.com/v1beta", DefaultModel = "gemini-2.5-flash" }
         };
 
         public const string DefaultSystem =
@@ -82,7 +78,7 @@ namespace Notchira
                 try
                 {
                     string label;
-                    string text = Secrets.Call(p.Id, key => Send(p, key, history, system), p.KeyOptional, out label);
+                    string text = Secrets.Call(p.Id, key => Send(p, key, history, system), false, out label);
                     return new AiResult { Text = text, Provider = p.Name, KeyLabel = label };
                 }
                 catch (KeyException ex) { errors.Add(ex.Message); }
@@ -122,7 +118,6 @@ namespace Notchira
             switch (p.Kind)
             {
                 case "gemini": return Gemini(p, key, history, system);
-                case "anthropic": return Anthropic(p, key, history, system);
                 default: return OpenAi(p, key, history, system);
             }
         }
@@ -172,24 +167,6 @@ namespace Notchira
                 }
             }
             throw new Exception("Jawaban kosong dari " + p.Name + " (mungkin diblokir).");
-        }
-
-        static string Anthropic(AiProvider p, string key, List<AiMessage> history, string system)
-        {
-            var msgs = new List<object>();
-            foreach (var m in history) msgs.Add(new Dictionary<string, object> { { "role", m.Role }, { "content", m.Text } });
-            var body = new Dictionary<string, object> { { "model", Model(p) }, { "max_tokens", 1500 }, { "messages", msgs } };
-            if (!string.IsNullOrEmpty(system)) body["system"] = system;
-            var headers = new Dictionary<string, string> { { "x-api-key", key }, { "anthropic-version", "2023-06-01" } };
-            var json = Post(Base(p) + "/messages", headers, body);
-            var blocks = Child(json, "content") as object[];
-            if (blocks != null)
-            {
-                var sb = new StringBuilder();
-                foreach (object b in blocks) { string t = Child(b, "text") as string; if (t != null) sb.Append(t); }
-                if (sb.Length > 0) return sb.ToString().Trim();
-            }
-            throw new Exception("Jawaban kosong dari " + p.Name + ".");
         }
 
         static object Child(object node, string name)
