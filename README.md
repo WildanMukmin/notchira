@@ -4,7 +4,7 @@ Dynamic island ringan untuk Windows. Duduk di tepi atas layar sebagai notch keci
 
 Native C# (.NET Framework 4.8, tanpa SDK), tanpa browser engine. Dibangun dengan `csc.exe` bawaan Windows.
 
-## Status: v0.8
+## Status: v0.9
 
 Sudah ada:
 - Notch di tepi atas dengan animasi pegas; tiga ukuran: idle, ringkas (sedang memutar musik), dan terbuka.
@@ -68,6 +68,20 @@ Sudah ada:
 
 API key disimpan terenkripsi (DPAPI) di `%APPDATA%\Notchira`, tidak pernah di repo.
 
+## Pasang
+
+Tidak ada installer: Notchira satu berkas `Notchira.exe` (sekitar 190 KB). Syarat: Windows 10 versi 2004 atau lebih baru (atau Windows 11), 64-bit; .NET Framework 4.8 sudah bawaan Windows.
+
+1. Bangun dengan `build.cmd` (lihat [Build](#build)), atau pakai exe hasil rilis.
+2. Taruh di folder tetap, misalnya `D:\Apps\Notchira\`, lalu jalankan. Exe belum ditandatangani, jadi SmartScreen bisa memperingatkan: **More info**, lalu **Run anyway**.
+3. Ikon muncul di system tray (di Windows 11 bisa di balik panah **^**). Klik kanan untuk semua pengaturan.
+
+**Jalan otomatis.** Sejak pertama dijalankan, Notchira ikut menyala setiap Windows hidup, jadi sudah siaga setelah boot. Untuk menutupnya, klik kanan tray lalu **Keluar** (menyala lagi saat login berikutnya). Untuk mematikan jalan otomatis, hilangkan centang **Mulai bersama Windows**; pilihan itu dihormati seterusnya. Kalau exe dipindah, jalurnya diperbarui sendiri pada jalan berikutnya.
+
+**Bisa dicari di Windows.** Tray, **Tambahkan ke menu Start (bisa dicari)** membuat pintasan `Notchira` di menu Start pengguna, sehingga muncul saat mencari "Notchira" di pencarian Windows. Hilangkan centangnya untuk menghapusnya.
+
+Data ada di `%APPDATA%\Notchira` (tray, **Buka folder data**). Untuk membuang Notchira: matikan jalan otomatis, hapus pintasan Start bila ada, **Keluar**, lalu hapus exe dan folder data.
+
 ## Skrip
 
 ```
@@ -88,7 +102,8 @@ Hasilnya `Notchira.exe` di folder yang sama. Syarat: Windows 10 2004 atau lebih 
 Variabel lingkungan untuk pengembangan:
 
 - `NOTCHIRA_DIR=<folder>` pakai folder data lain dan izinkan instans kedua.
-- `NOTCHIRA_DEMO=idle|compact|expanded|toast|lyrics|sleepy|prompter|editor|music|musicplay|musicwin|lyricstest|assistantwin|keyswin|mini` tampilkan data palsu, tanpa membaca media.
+- `NOTCHIRA_DEMO=idle|compact|expanded|toast|lyrics|sleepy|prompter|editor|music|musicplay|musicwin|lyricstest|assistantwin|keyswin|mini|startmenu|autostart` tampilkan data palsu, tanpa membaca media.
 - `NOTCHIRA_AI_BASE_GROQ` dan `_GEMINI` mengganti alamat API asisten (untuk uji dengan server tiruan).
 - `NOTCHIRA_GROQ_URL` dan `NOTCHIRA_DEEPGRAM_URL` mengganti alamat layanan transkripsi (untuk uji dengan server tiruan).
+- `NOTCHIRA_RUNKEY=<kunci registri>` dan `NOTCHIRA_STARTDIR=<folder>` mengalihkan kunci Run dan folder pintasan Start untuk uji. Salinan uji (`NOTCHIRA_DIR`) tidak menyentuh registri kecuali `NOTCHIRA_RUNKEY` diberikan.
 - `NOTCHIRA_DUMP=<folder>` simpan frame yang dirender sebagai PNG (dipakai bersama DEMO, lalu keluar).

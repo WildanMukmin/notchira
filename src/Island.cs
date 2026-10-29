@@ -89,7 +89,7 @@ namespace Notchira
 
         NotifyIcon tray;
         ContextMenuStrip menu;
-        ToolStripMenuItem miHide, miLiquid, miSolid, miAuto, miLyrics, miSound, miNormal, miMini, miAutoMini, miMiniNotif;
+        ToolStripMenuItem miHide, miLiquid, miSolid, miAuto, miLyrics, miSound, miNormal, miMini, miAutoMini, miMiniNotif, miStart;
 
         static readonly Font fTitle = new Font("Segoe UI", 15f, FontStyle.Bold, GraphicsUnit.Pixel);
         static readonly Font fLyric = new Font("Segoe UI Semibold", 14.5f, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -195,6 +195,7 @@ namespace Notchira
         {
             base.OnShown(e);
             slow.Start();
+            InitAutostart();
             trimTimer.Start();
             look.Start();
             ScheduleBlink();
@@ -997,6 +998,8 @@ namespace Notchira
             miMusic.Click += delegate { MusicWindow.ShowWindow(); };
             var miPrompter = new ToolStripMenuItem("Teleprompter...");
             miPrompter.Click += delegate { Teleprompter.ShowEditor(); };
+            miStart = new ToolStripMenuItem("Tambahkan ke menu Start (bisa dicari)");
+            miStart.Click += delegate { SetStartShortcut(!HasStartShortcut()); };
             miAuto = new ToolStripMenuItem("Mulai bersama Windows");
             miAuto.Click += delegate { SetAutostart(!IsAutostart()); };
             var miFolder = new ToolStripMenuItem("Buka folder data");
@@ -1006,7 +1009,7 @@ namespace Notchira
             };
             var miQuit = new ToolStripMenuItem("Keluar");
             miQuit.Click += delegate { Application.Exit(); };
-            menu.Items.AddRange(new ToolStripItem[] { miHide, modeMenu, miAssistant, miMusic, miPrompter, mat, miLyrics, miSound, miAuto, miFolder, new ToolStripSeparator(), miQuit });
+            menu.Items.AddRange(new ToolStripItem[] { miHide, modeMenu, miAssistant, miMusic, miPrompter, mat, miLyrics, miSound, miStart, miAuto, miFolder, new ToolStripSeparator(), miQuit });
             menu.Opening += delegate
             {
                 miHide.Text = (userHidden ? "Tampilkan island" : "Sembunyikan island") + "\tCtrl+Alt+H";
@@ -1014,6 +1017,7 @@ namespace Notchira
                 miSolid.Checked = material != "liquid";
                 miLyrics.Checked = Settings.Get("lyrics.online", "1") == "1";
                 miSound.Checked = Settings.Get("sound", "1") == "1";
+                miStart.Checked = HasStartShortcut();
                 string mm = Settings.Get("mini", "auto");
                 miNormal.Checked = mm == "normal";
                 miMini.Checked = mm == "mini";
@@ -1039,7 +1043,110 @@ namespace Notchira
             Render();
         }
 
-        const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        static string RunKey
+        {
+            get { return Environment.GetEnvironmentVariable("NOTCHIRA_RUNKEY") ?? @"Software\Microsoft\Windows\CurrentVersion\Run"; }
+        }
+
+        // Notchira starts with Windows by default, so it is already waiting after every boot. The first run turns this
+        // on once; after that the tray menu decides, and "Keluar" only closes it until the next sign-in.
+        // Test copies (NOTCHIRA_DIR) never touch the registry unless a test key is given.
+        void InitAutostart()
+        {
+            if (Environment.GetEnvironmentVariable("NOTCHIRA_DIR") != null && Environment.GetEnvironmentVariable("NOTCHIRA_RUNKEY") == null) return;
+            if (Settings.Get("autostart.init", "") != "1")
+            {
+                SetAutostart(true);
+                Settings.Set("autostart.init", "1");
+            }
+            else if (IsAutostart()) SetAutostart(true); // keeps the stored path right if the exe was moved
+        }
+
+        // Dev hook: NOTCHIRA_DEMO=autostart checks the default, the opt-out, and the path refresh on a test key.
+        void DemoAutostart()
+        {
+            string dir = Environment.GetEnvironmentVariable("NOTCHIRA_DUMP");
+            Directory.CreateDirectory(dir);
+            var sb = new System.Text.StringBuilder();
+            string exe = Application.ExecutablePath;
+            Func<string> stored = delegate
+            {
+                using (var k = Registry.CurrentUser.OpenSubKey(RunKey)) { object v = k == null ? null : k.GetValue("Notchira"); return v == null ? "(none)" : v.ToString(); }
+            };
+            InitAutostart();
+            sb.AppendLine("1 first run enables it: " + IsAutostart() + " -> " + stored() + " | init flag=" + Settings.Get("autostart.init", ""));
+            SetAutostart(false);
+            InitAutostart();
+            sb.AppendLine("2 after the user turns it off, a later start leaves it off: " + !IsAutostart() + " -> " + stored());
+            SetAutostart(true);
+            using (var k = Registry.CurrentUser.CreateSubKey(RunKey)) k.SetValue("Notchira", "\"C:\\old\\place\\Notchira.exe\"");
+            InitAutostart();
+            sb.AppendLine("3 a moved exe path is refreshed: " + (stored() == "\"" + exe + "\"") + " -> " + stored());
+            Registry.CurrentUser.DeleteSubKeyTree(RunKey, false);
+            File.WriteAllText(Path.Combine(dir, "autostart.log"), sb.ToString());
+            Application.Exit();
+        }
+
+        // A shortcut in the per-user Start Menu is what makes Notchira show up in Windows search.
+        static string StartLink
+        {
+            get
+            {
+                string dir = Environment.GetEnvironmentVariable("NOTCHIRA_STARTDIR") ??
+                             Environment.GetFolderPath(Environment.SpecialFolder.Programs);
+                return Path.Combine(dir, "Notchira.lnk");
+            }
+        }
+
+        static bool HasStartShortcut() { return File.Exists(StartLink); }
+
+        static void SetStartShortcut(bool on)
+        {
+            try
+            {
+                string link = StartLink;
+                if (!on) { if (File.Exists(link)) File.Delete(link); return; }
+                Directory.CreateDirectory(Path.GetDirectoryName(link));
+                Type t = Type.GetTypeFromProgID("WScript.Shell");
+                object shell = Activator.CreateInstance(t);
+                object lnk = t.InvokeMember("CreateShortcut", System.Reflection.BindingFlags.InvokeMethod, null, shell, new object[] { link });
+                Type lt = lnk.GetType();
+                Action<string, string> set = (name, value) =>
+                    lt.InvokeMember(name, System.Reflection.BindingFlags.SetProperty, null, lnk, new object[] { value });
+                string exe = Application.ExecutablePath;
+                set("TargetPath", exe);
+                set("WorkingDirectory", Path.GetDirectoryName(exe));
+                set("Description", "Notchira - dynamic island untuk Windows");
+                set("IconLocation", exe + ",0");
+                lt.InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, lnk, null);
+                System.Runtime.InteropServices.Marshal.ReleaseComObject(lnk);
+                System.Runtime.InteropServices.Marshal.ReleaseComObject(shell);
+            }
+            catch { }
+        }
+
+        // Dev hook: NOTCHIRA_DEMO=startmenu creates and removes the shortcut in NOTCHIRA_STARTDIR and logs it.
+        void DemoStartMenu()
+        {
+            string dir = Environment.GetEnvironmentVariable("NOTCHIRA_DUMP");
+            Directory.CreateDirectory(dir);
+            var sb = new System.Text.StringBuilder();
+            SetStartShortcut(true);
+            sb.AppendLine("created: " + HasStartShortcut() + " at " + StartLink);
+            try
+            {
+                Type t = Type.GetTypeFromProgID("WScript.Shell");
+                object shell = Activator.CreateInstance(t);
+                object lnk = t.InvokeMember("CreateShortcut", System.Reflection.BindingFlags.InvokeMethod, null, shell, new object[] { StartLink });
+                foreach (string p in new[] { "TargetPath", "WorkingDirectory", "IconLocation", "Description" })
+                    sb.AppendLine("  " + p + " = " + lnk.GetType().InvokeMember(p, System.Reflection.BindingFlags.GetProperty, null, lnk, null));
+            }
+            catch (Exception ex) { sb.AppendLine("read back failed: " + ex.Message); }
+            SetStartShortcut(false);
+            sb.AppendLine("removed: " + !HasStartShortcut());
+            File.WriteAllText(Path.Combine(dir, "startmenu.log"), sb.ToString());
+            Application.Exit();
+        }
 
         static bool IsAutostart()
         {
@@ -1054,7 +1161,7 @@ namespace Notchira
         {
             try
             {
-                using (var k = Registry.CurrentUser.OpenSubKey(RunKey, true))
+                using (var k = Registry.CurrentUser.CreateSubKey(RunKey))
                 {
                     if (k == null) return;
                     if (on) k.SetValue("Notchira", "\"" + Application.ExecutablePath + "\"");
@@ -1228,6 +1335,8 @@ namespace Notchira
                 return;
             }
             if (mode == "musicwin") { MusicWindow.Demo(Environment.GetEnvironmentVariable("NOTCHIRA_DUMP")); return; }
+            if (mode == "startmenu") { DemoStartMenu(); return; }
+            if (mode == "autostart") { DemoAutostart(); return; }
             if (mode == "mini") { DemoMini(); return; }
             if (mode == "music") { DemoMusic(); return; }
             if (mode == "musicplay")
