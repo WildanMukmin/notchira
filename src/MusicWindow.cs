@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -35,6 +35,24 @@ namespace Notchira
             if (instance == null || instance.IsDisposed) instance = new MusicWindow();
             instance.Show();
             instance.Activate();
+        }
+
+        // Dev hook: NOTCHIRA_DEMO=musicwin
+        public static void Demo(string dir)
+        {
+            ShowWindow();
+            var t = new System.Windows.Forms.Timer { Interval = 1200 };
+            t.Tick += delegate
+            {
+                t.Stop();
+                using (var bmp = new Bitmap(instance.Width, instance.Height))
+                {
+                    instance.DrawToBitmap(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
+                    bmp.Save(System.IO.Path.Combine(dir, "musicwin.png"), System.Drawing.Imaging.ImageFormat.Png);
+                }
+                Application.Exit();
+            };
+            t.Start();
         }
 
         MusicWindow()

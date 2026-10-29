@@ -926,6 +926,7 @@ namespace Notchira
 
         void StartDemo(string mode)
         {
+            if (mode == "musicwin") { MusicWindow.Demo(Environment.GetEnvironmentVariable("NOTCHIRA_DUMP")); return; }
             if (mode == "music") { DemoMusic(); return; }
             if (mode == "musicplay")
             {
