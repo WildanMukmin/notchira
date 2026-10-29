@@ -40,45 +40,41 @@ namespace Notchira
                 if (size > GroqMaxBytes) error = "File lebih dari 25 MB, terlalu besar untuk Groq.";
                 else
                 {
-                    result = TryKeys(Secrets.Get("groq"), k => Groq(audioPath, k), out e);
+                    result = CallProvider("groq", k => Groq(audioPath, k), out e);
                     if (result != null) { source = "Groq"; error = null; return result; }
                     error = "Groq: " + e;
                 }
             }
             if (Secrets.Has("deepgram"))
             {
-                result = TryKeys(Secrets.Get("deepgram"), k => Deepgram(audioPath, k), out e);
+                result = CallProvider("deepgram", k => Deepgram(audioPath, k), out e);
                 if (result != null) { source = "Deepgram"; error = null; return result; }
                 error = "Deepgram: " + e;
             }
             return null;
         }
 
-        static string TryKeys(List<string> keys, Func<string, string> call, out string error)
+        // Key rotation (rejected / rate limited / out of quota) lives in Secrets.Call.
+        static string CallProvider(string provider, Func<string, string> call, out string error)
         {
             error = "gagal";
-            foreach (string k in keys)
+            try
             {
-                try
-                {
-                    string r = call(k);
-                    if (!string.IsNullOrEmpty(r)) return r;
-                    error = "tidak ada ucapan terdeteksi";
-                    return null;
-                }
-                catch (WebException ex)
-                {
-                    var resp = ex.Response as HttpWebResponse;
-                    int code = resp == null ? 0 : (int)resp.StatusCode;
-                    error = code == 0 ? ex.Message : "HTTP " + code;
-                    if (code == 401 || code == 403 || code == 429 || code == 0) continue; // try the next key
-                    return null;
-                }
-                catch (Exception ex) { error = ex.Message; return null; }
+                string label;
+                string r = Secrets.Call(provider, call, false, out label);
+                if (string.IsNullOrEmpty(r)) { error = "tidak ada ucapan terdeteksi"; return null; }
+                error = null;
+                return r;
             }
-            return null;
+            catch (KeyException ex) { error = ex.Message; return null; }
+            catch (WebException ex)
+            {
+                var resp = ex.Response as HttpWebResponse;
+                error = resp == null ? ex.Message : "HTTP " + (int)resp.StatusCode;
+                return null;
+            }
+            catch (Exception ex) { error = ex.Message; return null; }
         }
-
         static void Tls() { ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072; }
 
         // ---- Groq: multipart upload, segments back --------------------------------------------------------

@@ -143,6 +143,14 @@ namespace Notchira
             lyricTimer.Tick += delegate { lyricTimer.Stop(); Render(); ScheduleLyric(); };
             media.Changed += OnTrack;
             LocalPlayer.I.Changed += OnLocal;
+            Secrets.Switched += delegate(string prov, string from, string to)
+            {
+                if (IsDisposed || !IsHandleCreated) return;
+                BeginInvoke((Action)delegate
+                {
+                    ShowToast(new Notify.Message { Title = "Kunci " + prov + " kena batas", Body = to != null ? "Pindah ke \"" + to + "\"" : "Tidak ada kunci cadangan" });
+                });
+            };
             SongLyrics.Updated += delegate(string id)
             {
                 if (IsDisposed || !IsHandleCreated) return;
@@ -171,6 +179,7 @@ namespace Notchira
             base.OnHandleCreated(e);
             glassOk = Native.SetWindowDisplayAffinity(Handle, Native.WDA_EXCLUDEFROMCAPTURE);
             Native.RegisterHotKey(Handle, 1, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x48);
+            Native.RegisterHotKey(Handle, 2, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x41);
             Setup();
         }
 
@@ -193,6 +202,7 @@ namespace Notchira
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             Native.UnregisterHotKey(Handle, 1);
+            Native.UnregisterHotKey(Handle, 2);
             tray.Visible = false;
             tray.Dispose();
             base.OnFormClosed(e);
@@ -200,7 +210,11 @@ namespace Notchira
 
         protected override void WndProc(ref Message m)
         {
-            if (m.Msg == Native.WM_HOTKEY) { ToggleHidden(); return; }
+            if (m.Msg == Native.WM_HOTKEY)
+            {
+                if ((int)m.WParam == 2) AssistantWindow.ShowWindow(); else ToggleHidden();
+                return;
+            }
             base.WndProc(ref m);
         }
 
@@ -380,7 +394,8 @@ namespace Notchira
         {
             float happy = 0, wide = 0, droop = 0;
             bool focus = false;
-            if (toast != null)
+            if (thinking) focus = true;
+            else if (toast != null)
             {
                 if (toast.Progress >= 0 && toast.Progress < 100) focus = true;
                 else wide = 1;
@@ -399,7 +414,14 @@ namespace Notchira
             Kick();
         }
 
-        bool lookLocked;
+        bool lookLocked, thinking;
+
+        // The assistant is waiting for an answer: the eyes look down, like for a running job.
+        public void SetThinking(bool on)
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            BeginInvoke((Action)delegate { thinking = on; UpdateMood(); });
+        }
 
         void OnLook()
         {
@@ -845,6 +867,8 @@ namespace Notchira
             };
             miSound = new ToolStripMenuItem("Efek suara");
             miSound.Click += delegate { Settings.Set("sound", Settings.Get("sound", "1") == "1" ? "0" : "1"); };
+            var miAssistant = new ToolStripMenuItem("Asisten AI...\tCtrl+Alt+A");
+            miAssistant.Click += delegate { AssistantWindow.ShowWindow(); };
             var miMusic = new ToolStripMenuItem("Musik YouTube...");
             miMusic.Click += delegate { MusicWindow.ShowWindow(); };
             var miPrompter = new ToolStripMenuItem("Teleprompter...");
@@ -858,7 +882,7 @@ namespace Notchira
             };
             var miQuit = new ToolStripMenuItem("Keluar");
             miQuit.Click += delegate { Application.Exit(); };
-            menu.Items.AddRange(new ToolStripItem[] { miHide, miMusic, miPrompter, mat, miLyrics, miSound, miAuto, miFolder, new ToolStripSeparator(), miQuit });
+            menu.Items.AddRange(new ToolStripItem[] { miHide, miAssistant, miMusic, miPrompter, mat, miLyrics, miSound, miAuto, miFolder, new ToolStripSeparator(), miQuit });
             menu.Opening += delegate
             {
                 miHide.Text = (userHidden ? "Tampilkan island" : "Sembunyikan island") + "\tCtrl+Alt+H";
@@ -979,6 +1003,34 @@ namespace Notchira
 
         void StartDemo(string mode)
         {
+            if (mode == "assistantwin" || mode == "keyswin")
+            {
+                if (mode == "keyswin")
+                {
+                    Secrets.Add("groq", "Key utama", "gsk_demo_1234");
+                    Secrets.Add("groq", "Key cadangan", "gsk_demo_5678");
+                    KeysWindow.ShowWindow("groq");
+                }
+                else AssistantWindow.ShowWindow();
+                var wt = new Timer { Interval = 1200 };
+                wt.Tick += delegate
+                {
+                    wt.Stop();
+                    string wd = Environment.GetEnvironmentVariable("NOTCHIRA_DUMP");
+                    foreach (Form f in System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Cast<Form>(Application.OpenForms)))
+                    {
+                        if (f == this || f.Width < 300) continue;
+                        using (var bmp = new Bitmap(f.Width, f.Height))
+                        {
+                            f.DrawToBitmap(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
+                            bmp.Save(Path.Combine(wd, mode + ".png"), ImageFormat.Png);
+                        }
+                    }
+                    Application.Exit();
+                };
+                wt.Start();
+                return;
+            }
             if (mode == "lyricstest")
             {
                 SelfTest.Run(Environment.GetEnvironmentVariable("NOTCHIRA_DUMP"), delegate { BeginInvoke((Action)Application.Exit); });

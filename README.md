@@ -4,7 +4,7 @@ Dynamic island ringan untuk Windows. Duduk di tepi atas layar sebagai notch keci
 
 Native C# (.NET Framework 4.8, tanpa SDK), tanpa browser engine. Dibangun dengan `csc.exe` bawaan Windows.
 
-## Status: v0.6
+## Status: v0.7
 
 Sudah ada:
 - Notch di tepi atas dengan animasi pegas; tiga ukuran: idle, ringkas (sedang memutar musik), dan terbuka.
@@ -45,14 +45,19 @@ Sudah ada:
   - Panel terbuka menampilkan **tiga baris**: sebelumnya, sekarang (tebal), berikutnya. Mode ringkas menampilkan baris yang sedang dinyanyikan.
   - **Kunci API...** di jendela Musik YouTube: satu atau beberapa kunci per layanan (satu per baris). Kunci yang ditolak atau kena batas laju dilewati ke kunci berikutnya. Kunci disimpan terenkripsi DPAPI di akun Windows ini (`keys.dat`), tidak pernah di repo. **Audio lagu dikirim ke layanan itu hanya bila kuncinya ada**; matikan lewat opsi "Buat teks otomatis" atau hapus kuncinya. Groq dibatasi file 25 MB.
   - **Cari teks lagu** mengulang pencarian untuk lagu yang dipilih, termasuk transkrip bila ada kunci.
+- **Asisten AI** (**Ctrl+Alt+A** atau menu tray): jendela tanya-jawab dengan percakapan beberapa giliran (hanya di memori, dihapus dengan "Percakapan baru"). Lewat API, jadi tidak ada model yang berjalan di komputermu. Penyedia: **Groq**, **Gemini**, **OpenAI**, **Anthropic**, dan **Kustom** (server yang kompatibel dengan OpenAI, misalnya Ollama lokal, kunci boleh kosong). Model dan alamat API tiap penyedia bisa diubah. Mata island menunduk fokus selama menunggu jawaban.
+  - **Banyak kunci per penyedia** (**Kunci...**): beri nama, jadikan aktif, hapus, pulihkan. Bila kunci aktif ditolak (401/403), kena batas per menit, atau kuotanya habis (429), kunci itu diistirahatkan (2 menit untuk batas per menit, 1 jam untuk kuota habis atau ditolak) dan kunci berikutnya mengambil alih, dengan toast pemberitahuan. Penggantian otomatis bisa dimatikan. Kunci disimpan terenkripsi DPAPI di `keys.dat`, hanya nama dan empat karakter terakhir yang tampil. Kunci Groq dan Deepgram yang sama juga dipakai untuk transkrip lagu.
+  - **Pindah penyedia**: bila semua kunci penyedia terpilih sedang istirahat, penyedia lain yang punya kunci menjawab (bisa dimatikan).
+  - **Rapikan dengan AI** di editor teleprompter: menulis ulang naskah agar enak dibacakan dan menyisipkan `[jeda]`; hasilnya bisa diurungkan sekali.
+  - Hanya pertanyaan yang kamu kirim yang dikirim ke penyedia terpilih, saat kamu mengirimnya. Tidak ada telemetri.
 - Tanpa gerak saat tidak ada yang berubah: bingkai digambar hanya selama animasi (10 ms saat island berubah ukuran, 33 ms saat hanya mata bergerak).
 
 ## Rencana
 
 | Versi | Isi |
 |---|---|
+| 0.8 | Jawaban asisten bertahap (streaming), terjemahan teks lagu lewat asisten |
 | 0.3b | Mode Mini (sliver tembus klik) dan paket tema maskot dari PNG |
-| 0.7 | Asisten AI: banyak API key per penyedia dengan rotasi dan fallback; panggilan lewat API |
 | 1.0 | Pengaturan, bahasa ID/EN, navigasi keyboard, pembaca layar |
 
 API key disimpan terenkripsi (DPAPI) di `%APPDATA%\Notchira`, tidak pernah di repo.
@@ -77,6 +82,7 @@ Hasilnya `Notchira.exe` di folder yang sama. Syarat: Windows 10 2004 atau lebih 
 Variabel lingkungan untuk pengembangan:
 
 - `NOTCHIRA_DIR=<folder>` pakai folder data lain dan izinkan instans kedua.
-- `NOTCHIRA_DEMO=idle|compact|expanded|toast|lyrics|sleepy|prompter|editor|music|musicplay|musicwin|lyricstest` tampilkan data palsu, tanpa membaca media.
+- `NOTCHIRA_DEMO=idle|compact|expanded|toast|lyrics|sleepy|prompter|editor|music|musicplay|musicwin|lyricstest|assistantwin|keyswin` tampilkan data palsu, tanpa membaca media.
+- `NOTCHIRA_AI_BASE_GROQ`, `_GEMINI`, `_OPENAI`, `_ANTHROPIC`, `_CUSTOM` mengganti alamat API asisten (untuk uji dengan server tiruan).
 - `NOTCHIRA_GROQ_URL` dan `NOTCHIRA_DEEPGRAM_URL` mengganti alamat layanan transkripsi (untuk uji dengan server tiruan).
 - `NOTCHIRA_DUMP=<folder>` simpan frame yang dirender sebagai PNG (dipakai bersama DEMO, lalu keluar).

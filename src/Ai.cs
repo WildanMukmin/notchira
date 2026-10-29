@@ -1,0 +1,238 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Text;
+using System.Web.Script.Serialization;
+
+namespace Notchira
+{
+    sealed class AiProvider
+    {
+        public string Id, Name, Kind, DefaultBase, DefaultModel;
+        public bool KeyOptional;
+    }
+
+    sealed class AiMessage
+    {
+        public string Role; // "user" or "assistant"
+        public string Text;
+        public AiMessage(string role, string text) { Role = role; Text = text; }
+    }
+
+    sealed class AiResult
+    {
+        public string Text, Provider, KeyLabel;
+    }
+
+    // Chat over three wire formats (OpenAI-compatible, Gemini, Anthropic). Keys come from the key ring, and when
+    // every key of a provider is resting or rejected the next provider with keys answers instead.
+    static class Ai
+    {
+        public static readonly AiProvider[] Providers =
+        {
+            new AiProvider { Id = "groq", Name = "Groq", Kind = "openai", DefaultBase = "https://api.groq.com/openai/v1", DefaultModel = "llama-3.3-70b-versatile" },
+            new AiProvider { Id = "gemini", Name = "Gemini", Kind = "gemini", DefaultBase = "https://generativelanguage.googleapis.com/v1beta", DefaultModel = "gemini-2.5-flash" },
+            new AiProvider { Id = "openai", Name = "OpenAI", Kind = "openai", DefaultBase = "https://api.openai.com/v1", DefaultModel = "gpt-4o-mini" },
+            new AiProvider { Id = "anthropic", Name = "Anthropic", Kind = "anthropic", DefaultBase = "https://api.anthropic.com/v1", DefaultModel = "claude-haiku-5-5" },
+            new AiProvider { Id = "custom", Name = "Kustom (OpenAI-compatible)", Kind = "openai", DefaultBase = "http://localhost:11434/v1", DefaultModel = "llama3.2", KeyOptional = true }
+        };
+
+        public const string DefaultSystem =
+            "Kamu asisten kecil di Notchira, aplikasi di tepi layar Windows. Jawab singkat, jelas, dan langsung ke inti, " +
+            "dalam bahasa yang dipakai pengguna.";
+
+        public static AiProvider Find(string id)
+        {
+            return Providers.FirstOrDefault(p => p.Id == id) ?? Providers[0];
+        }
+
+        public static string Base(AiProvider p)
+        {
+            string env = Environment.GetEnvironmentVariable("NOTCHIRA_AI_BASE_" + p.Id.ToUpperInvariant());
+            if (!string.IsNullOrEmpty(env)) return env.TrimEnd('/');
+            string s = Settings.Get("ai.base." + p.Id, "");
+            return (s.Length > 0 ? s : p.DefaultBase).TrimEnd('/');
+        }
+
+        public static string Model(AiProvider p)
+        {
+            string s = Settings.Get("ai.model." + p.Id, "");
+            return s.Length > 0 ? s : p.DefaultModel;
+        }
+
+        public static string System { get { string s = Settings.Get("ai.system", ""); return s.Length > 0 ? s : DefaultSystem; } }
+
+        // Providers worth trying, the preferred one first, then the others that have keys.
+        static List<AiProvider> Order(string preferred, bool fallback)
+        {
+            var list = new List<AiProvider> { Find(preferred) };
+            if (fallback) list.AddRange(Providers.Where(p => p.Id != list[0].Id && Secrets.Has(p.Id)));
+            return list;
+        }
+
+        // history ends with the user's latest message. Throws KeyException or Exception with a readable message.
+        public static AiResult Ask(List<AiMessage> history, string system, string preferred, bool fallback)
+        {
+            var errors = new List<string>();
+            foreach (AiProvider p in Order(preferred, fallback))
+            {
+                try
+                {
+                    string label;
+                    string text = Secrets.Call(p.Id, key => Send(p, key, history, system), p.KeyOptional, out label);
+                    return new AiResult { Text = text, Provider = p.Name, KeyLabel = label };
+                }
+                catch (KeyException ex) { errors.Add(ex.Message); }
+                catch (Exception ex)
+                {
+                    int code; string body;
+                    Describe(ex, out code, out body);
+                    errors.Add(p.Name + ": " + (code > 0 ? "HTTP " + code + " " + Short(body) : ex.Message));
+                }
+            }
+            throw new Exception(string.Join(" ", errors.ToArray()));
+        }
+
+        static void Describe(Exception ex, out int code, out string body)
+        {
+            code = 0; body = "";
+            var api = ex as ApiException;
+            if (api != null) { code = api.Code; body = api.Body; return; }
+            var web = ex as WebException;
+            if (web != null && web.Response is HttpWebResponse)
+            {
+                code = (int)((HttpWebResponse)web.Response).StatusCode;
+                try { using (var rd = new StreamReader(web.Response.GetResponseStream(), Encoding.UTF8)) body = rd.ReadToEnd(); } catch { }
+            }
+        }
+
+        static string Short(string s)
+        {
+            s = (s ?? "").Replace('\r', ' ').Replace('\n', ' ');
+            return s.Length > 160 ? s.Substring(0, 160) + "..." : s;
+        }
+
+        // ---- wire formats -----------------------------------------------------------------------------------
+
+        static string Send(AiProvider p, string key, List<AiMessage> history, string system)
+        {
+            switch (p.Kind)
+            {
+                case "gemini": return Gemini(p, key, history, system);
+                case "anthropic": return Anthropic(p, key, history, system);
+                default: return OpenAi(p, key, history, system);
+            }
+        }
+
+        static string OpenAi(AiProvider p, string key, List<AiMessage> history, string system)
+        {
+            var msgs = new List<object>();
+            if (!string.IsNullOrEmpty(system)) msgs.Add(new Dictionary<string, object> { { "role", "system" }, { "content", system } });
+            foreach (var m in history) msgs.Add(new Dictionary<string, object> { { "role", m.Role }, { "content", m.Text } });
+            var body = new Dictionary<string, object> { { "model", Model(p) }, { "messages", msgs } };
+            var headers = new Dictionary<string, string>();
+            if (key.Length > 0) headers["Authorization"] = "Bearer " + key;
+            var json = Post(Base(p) + "/chat/completions", headers, body);
+            var choices = Child(json, "choices") as object[];
+            if (choices != null && choices.Length > 0)
+            {
+                var msg = Child(choices[0], "message");
+                string text = Child(msg, "content") as string;
+                if (!string.IsNullOrEmpty(text)) return text.Trim();
+            }
+            throw new Exception("Jawaban kosong dari " + p.Name + ".");
+        }
+
+        static string Gemini(AiProvider p, string key, List<AiMessage> history, string system)
+        {
+            var contents = new List<object>();
+            foreach (var m in history)
+                contents.Add(new Dictionary<string, object>
+                {
+                    { "role", m.Role == "assistant" ? "model" : "user" },
+                    { "parts", new object[] { new Dictionary<string, object> { { "text", m.Text } } } }
+                });
+            var body = new Dictionary<string, object> { { "contents", contents } };
+            if (!string.IsNullOrEmpty(system))
+                body["systemInstruction"] = new Dictionary<string, object> { { "parts", new object[] { new Dictionary<string, object> { { "text", system } } } } };
+            var headers = new Dictionary<string, string> { { "x-goog-api-key", key } };
+            var json = Post(Base(p) + "/models/" + Uri.EscapeDataString(Model(p)) + ":generateContent", headers, body);
+            var cands = Child(json, "candidates") as object[];
+            if (cands != null && cands.Length > 0)
+            {
+                var parts = Child(Child(cands[0], "content"), "parts") as object[];
+                if (parts != null)
+                {
+                    var sb = new StringBuilder();
+                    foreach (object part in parts) { string t = Child(part, "text") as string; if (t != null) sb.Append(t); }
+                    if (sb.Length > 0) return sb.ToString().Trim();
+                }
+            }
+            throw new Exception("Jawaban kosong dari " + p.Name + " (mungkin diblokir).");
+        }
+
+        static string Anthropic(AiProvider p, string key, List<AiMessage> history, string system)
+        {
+            var msgs = new List<object>();
+            foreach (var m in history) msgs.Add(new Dictionary<string, object> { { "role", m.Role }, { "content", m.Text } });
+            var body = new Dictionary<string, object> { { "model", Model(p) }, { "max_tokens", 1500 }, { "messages", msgs } };
+            if (!string.IsNullOrEmpty(system)) body["system"] = system;
+            var headers = new Dictionary<string, string> { { "x-api-key", key }, { "anthropic-version", "2023-06-01" } };
+            var json = Post(Base(p) + "/messages", headers, body);
+            var blocks = Child(json, "content") as object[];
+            if (blocks != null)
+            {
+                var sb = new StringBuilder();
+                foreach (object b in blocks) { string t = Child(b, "text") as string; if (t != null) sb.Append(t); }
+                if (sb.Length > 0) return sb.ToString().Trim();
+            }
+            throw new Exception("Jawaban kosong dari " + p.Name + ".");
+        }
+
+        static object Child(object node, string name)
+        {
+            var d = node as Dictionary<string, object>;
+            object v;
+            return d != null && d.TryGetValue(name, out v) ? v : null;
+        }
+
+        static object Post(string url, Dictionary<string, string> headers, Dictionary<string, object> body)
+        {
+            ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;
+            var req = (HttpWebRequest)WebRequest.Create(url);
+            req.Method = "POST";
+            req.ContentType = "application/json";
+            req.UserAgent = "Notchira/0.7";
+            req.Timeout = 90000;
+            foreach (var h in headers) req.Headers[h.Key] = h.Value;
+            byte[] data = Encoding.UTF8.GetBytes(new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.Serialize(body));
+            req.ContentLength = data.Length;
+            using (var s = req.GetRequestStream()) s.Write(data, 0, data.Length);
+            try
+            {
+                using (var resp = (HttpWebResponse)req.GetResponse())
+                using (var rd = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+                    return new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(rd.ReadToEnd());
+            }
+            catch (WebException ex)
+            {
+                var r = ex.Response as HttpWebResponse;
+                if (r == null) throw;
+                string text = "";
+                try { using (var rd = new StreamReader(r.GetResponseStream(), Encoding.UTF8)) text = rd.ReadToEnd(); } catch { }
+                throw new ApiException((int)r.StatusCode, text);
+            }
+        }
+
+        // ---- one-shot helper for features inside Notchira ----------------------------------------------------
+
+        public static AiResult Once(string system, string prompt)
+        {
+            return Ask(new List<AiMessage> { new AiMessage("user", prompt) }, system,
+                Settings.Get("ai.provider", "groq"), Settings.Get("ai.fallback", "1") == "1");
+        }
+    }
+}

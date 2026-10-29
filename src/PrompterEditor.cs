@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace Notchira
@@ -16,6 +17,12 @@ namespace Notchira
         readonly TrackBar bg = new TrackBar();
         readonly CheckBox mirror = new CheckBox();
         readonly Label info = new Label();
+        readonly SynchronizationContext ui = SynchronizationContext.Current;
+        string beforeAi;
+        const string TidyPrompt =
+            "Kamu editor naskah untuk video. Rapikan naskah dari pengguna supaya enak dibacakan dengan lantang: kalimat pendek dan jelas, " +
+            "buang pengulangan, pertahankan makna, bahasa, dan nada aslinya, jangan menambah fakta baru. Sisipkan penanda [jeda] " +
+            "di tempat napas yang alami (paling banyak satu per paragraf). Balas hanya dengan naskahnya, tanpa komentar atau tanda kutip.";
         bool loading;
 
         public PrompterEditor()
@@ -70,11 +77,23 @@ namespace Notchira
                 ForeColor = SystemColors.GrayText,
                 Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
             };
+            var tidy = Btn("Rapikan dengan AI", 270, 438, 130);
+            var undo = Btn("Urungkan AI", 406, 438, 90);
+            undo.Enabled = false;
+            tidy.Anchor = undo.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+            tidy.Click += delegate { Tidy(tidy, undo); };
+            undo.Click += delegate
+            {
+                if (beforeAi == null) return;
+                box.Text = beforeAi;
+                beforeAi = null;
+                undo.Enabled = false;
+            };
             var start = Btn("Mulai (Ctrl+Enter)", 520, 472, 108);
             start.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             start.Click += delegate { StartReading(); };
 
-            Controls.AddRange(new Control[] { lblSaved, saved, btnImport, btnSave, btnDelete, box, info, l1, wpm, l2, size, l3, bg, mirror, hint, start });
+            Controls.AddRange(new Control[] { lblSaved, saved, btnImport, btnSave, btnDelete, box, info, l1, wpm, l2, size, l3, bg, mirror, tidy, undo, hint, start });
 
             LoadSettings();
             RefreshList();
@@ -154,6 +173,36 @@ namespace Notchira
                 File.WriteAllText(Teleprompter.LastFile, box.Text);
             }
             catch { }
+        }
+
+        // Sends the script to the assistant for a spoken-style rewrite; the old text can be restored once.
+        void Tidy(Button b, Button undo)
+        {
+            string text = box.Text;
+            if (text.Trim().Length == 0) return;
+            b.Enabled = false;
+            info.Text = "Meminta AI merapikan naskah...";
+            string provider = Settings.Get("ai.provider", "groq");
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                AiResult r = null;
+                string error = null;
+                try { r = Ai.Once(TidyPrompt, text); }
+                catch (Exception ex) { error = ex.Message; }
+                ui.Post(_ =>
+                {
+                    if (IsDisposed) return;
+                    b.Enabled = true;
+                    if (r != null)
+                    {
+                        beforeAi = box.Text;
+                        box.Text = r.Text.Replace("\r\n", "\n").Replace("\n", Environment.NewLine);
+                        undo.Enabled = true;
+                        info.Text = "Dirapikan oleh " + r.Provider + ". " + info.Text;
+                    }
+                    else info.Text = "Gagal: " + error;
+                }, null);
+            });
         }
 
         void StartReading()

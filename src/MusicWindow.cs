@@ -116,7 +116,7 @@ namespace Notchira
             var btnLyrics = Btn("Cari teks lagu", 290, 458, 100);
             btnLyrics.Click += delegate { FindLyrics(btnLyrics); };
             var btnKeys = Btn("Kunci API...", 396, 458, 80);
-            btnKeys.Click += delegate { KeysDialog(); };
+            btnKeys.Click += delegate { KeysWindow.ShowWindow("groq"); };
             btnLyrics.Anchor = btnKeys.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
             btnShuffle.SetBounds(480, 458, 100, 26);
             btnShuffle.Click += delegate { LocalPlayer.I.SetShuffle(!LocalPlayer.I.Shuffle); UpdateModes(); };
@@ -287,53 +287,6 @@ namespace Notchira
                 status.Text = l != null ? "Teks ditemukan: " + src : "Teks tidak ditemukan." + (Transcribe.Available ? "" : " Tambahkan kunci Groq atau Deepgram untuk membuat transkrip.");
                 SongLyrics.Raise(s.Id);
             }, null));
-        }
-
-        void KeysDialog()
-        {
-            using (var f = new Form())
-            {
-                f.Text = "Kunci API transkripsi";
-                f.FormBorderStyle = FormBorderStyle.FixedDialog;
-                f.StartPosition = FormStartPosition.CenterParent;
-                f.MinimizeBox = f.MaximizeBox = false;
-                f.ClientSize = new Size(470, 330);
-                f.Font = Font;
-
-                var info = new Label
-                {
-                    Text = "Dipakai bila lagu tidak punya teks di LRCLIB atau caption YouTube. Audio lagu dikirim ke layanan yang kuncinya diisi. Kunci disimpan terenkripsi di akun Windows ini.",
-                    Location = new Point(12, 10), Size = new Size(446, 44)
-                };
-                var g1 = new Label { Text = "Groq: tersimpan " + Secrets.Get("groq").Count + " kunci. Ganti (satu per baris, kosong = tidak diubah)", Location = new Point(12, 60), AutoSize = true };
-                var t1 = new TextBox { Location = new Point(12, 80), Size = new Size(446, 56), Multiline = true, ScrollBars = ScrollBars.Vertical };
-                var c1 = new CheckBox { Text = "Hapus semua kunci Groq", Location = new Point(12, 140), AutoSize = true };
-                var g2 = new Label { Text = "Deepgram: tersimpan " + Secrets.Get("deepgram").Count + " kunci. Ganti (satu per baris, kosong = tidak diubah)", Location = new Point(12, 168), AutoSize = true };
-                var t2 = new TextBox { Location = new Point(12, 188), Size = new Size(446, 56), Multiline = true, ScrollBars = ScrollBars.Vertical };
-                var c2 = new CheckBox { Text = "Hapus semua kunci Deepgram", Location = new Point(12, 248), AutoSize = true };
-                var auto = new CheckBox
-                {
-                    Text = "Buat teks otomatis saat lagu diputar bila tidak ada sumber lain",
-                    Location = new Point(12, 274), AutoSize = true, Checked = Settings.Get("transcribe.auto", "1") == "1"
-                };
-                var ok = new Button { Text = "Simpan", DialogResult = DialogResult.OK, Location = new Point(302, 296), Size = new Size(75, 26) };
-                var cancel = new Button { Text = "Batal", DialogResult = DialogResult.Cancel, Location = new Point(383, 296), Size = new Size(75, 26) };
-                f.Controls.AddRange(new Control[] { info, g1, t1, c1, g2, t2, c2, auto, ok, cancel });
-                f.AcceptButton = ok;
-                f.CancelButton = cancel;
-                if (f.ShowDialog(this) != DialogResult.OK) return;
-
-                Action<string, TextBox, CheckBox> apply = (provider, box, del) =>
-                {
-                    var lines = box.Text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (del.Checked) Secrets.Set(provider, new string[0]);
-                    else if (lines.Length > 0) Secrets.Set(provider, lines);
-                };
-                apply("groq", t1, c1);
-                apply("deepgram", t2, c2);
-                Settings.Set("transcribe.auto", auto.Checked ? "1" : "0");
-                status.Text = "Kunci disimpan.";
-            }
         }
 
         void NewList()
