@@ -106,7 +106,7 @@ namespace Notchira
             Color c = AccA;
             return Color.FromArgb((int)(240 * Clamp01(a)), c.R + (255 - c.R) * 55 / 100, c.G + (255 - c.G) * 55 / 100, c.B + (255 - c.B) * 55 / 100);
         }
-        int glassTint = 84;   // alpha of the dark layer over the glass, raised on bright backgrounds
+        int glassTint = 140;   // alpha of the dark layer over the glass, raised on bright backgrounds
 
         NotifyIcon tray;
         ContextMenuStrip menu;
@@ -145,7 +145,7 @@ namespace Notchira
 
             BuildTray();
             anim.Tick += OnAnim;
-            tick.Tick += delegate { tickCount++; if (tickCount % 2 == 0) CaptureBackdrop(); Render(); };
+            tick.Tick += delegate { tickCount++; if (tickCount % 2 == 0) CaptureBackdrop(true); Render(); };
             leave.Tick += delegate
             {
                 leave.Stop();
@@ -730,13 +730,21 @@ namespace Notchira
 
         // ---- backdrop for the glass material ----------------------------------------------------------------
 
-        void CaptureBackdrop()
+        // Where the screen behind the island comes from. When Windows lets the island hide itself from screen capture
+        // (glassOk) the screen is simply copied. Some Windows 10 builds refuse that for a layered window (error 8), so
+        // there the island is blanked for a moment (about 60 ms), the screen is copied, and the island is drawn again.
+        // That only happens when the panel opens, never on the periodic live refresh, so it does not flicker.
+        Bitmap blankFrame;
+
+        void CaptureBackdrop(bool live = false)
         {
             // dev hook: NOTCHIRA_BACKDROP=<png> stands in for the screen behind the island (for dumped frames)
             string fake = Environment.GetEnvironmentVariable("NOTCHIRA_BACKDROP");
             bool useFake = !string.IsNullOrEmpty(fake) && File.Exists(fake);
             if (material != "liquid" || !IsHandleCreated || frame == null) return;
-            if (!useFake && (!glassOk || !Visible)) return;
+            if (!useFake && !Visible) return;
+            bool blank = !useFake && !glassOk;
+            if (blank && (live || (cur != Mode.Expanded && cur != Mode.Toast))) return;
             try
             {
                 int W = frame.Width, H = frame.Height;
@@ -745,6 +753,18 @@ namespace Notchira
                     using (var g = Graphics.FromImage(raw))
                     {
                         if (useFake) using (var img = Image.FromFile(fake)) g.DrawImage(img, 0, 0, W, H);
+                        else if (blank)
+                        {
+                            if (blankFrame == null || blankFrame.Width != W || blankFrame.Height != H)
+                            {
+                                if (blankFrame != null) blankFrame.Dispose();
+                                blankFrame = new Bitmap(W, H, PixelFormat.Format32bppPArgb);
+                            }
+                            Present(blankFrame);
+                            System.Threading.Thread.Sleep(60);
+                            try { g.CopyFromScreen(Left, Top, 0, 0, new Size(W, H)); }
+                            finally { Present(); }
+                        }
                         else g.CopyFromScreen(Left, Top, 0, 0, new Size(W, H));
                     }
                     int w2 = Math.Max(8, W / 24), h2 = Math.Max(4, H / 24);   // coarse on purpose: a smooth frost, not shapes from the window behind
@@ -756,17 +776,18 @@ namespace Notchira
                             g.DrawImage(raw, new Rectangle(0, 0, w2, h2));
                         }
                         // the brighter the screen behind, the darker the tint, so white text stays readable
-                        double sum = 0;
-                        int n = 0;
+                        // measured at the 90th percentile, not the mean: one bright window behind the island is enough to
+                        // lose the text contrast there
+                        var lums = new List<double>();
                         for (int py = 0; py < h2; py++)
                             for (int px = 0; px < w2; px++)
                             {
                                 Color c = small.GetPixel(px, py);
-                                sum += (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255.0;
-                                n++;
+                                lums.Add((0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255.0);
                             }
-                        double lum = n > 0 ? sum / n : 0;
-                        glassTint = 84 + (int)(Math.Max(0, Math.Min(1, (lum - 0.35) / 0.55)) * 126);
+                        lums.Sort();
+                        double lum = lums.Count > 0 ? lums[(int)(lums.Count * 0.9)] : 0;
+                        glassTint = 140 + (int)(Math.Max(0, Math.Min(1, (lum - 0.25) / 0.35)) * 80);
                         if (backdrop == null || backdrop.Width != W || backdrop.Height != H)
                         {
                             if (backdrop != null) backdrop.Dispose();
@@ -777,7 +798,7 @@ namespace Notchira
                         {
                             ia.SetWrapMode(WrapMode.TileFlipXY);
                             // frosted look: colours pushed up and a little lighter than the screen behind
-                            const float sat = 1.5f, lift = 0.06f;
+                            const float sat = 1.6f, lift = 0.05f;
                             float r = 0.3086f * (1 - sat), gC = 0.6094f * (1 - sat), bC = 0.0820f * (1 - sat);
                             ia.SetColorMatrix(new ColorMatrix(new[]
                             {
@@ -851,6 +872,7 @@ namespace Notchira
             hits = building ?? new List<Hit>();
             building = null;
             Present();
+            SnapLive();
             SyncInput();
         }
 
@@ -866,9 +888,14 @@ namespace Notchira
                     g.FillPath(tb, p);
                 }
                 using (var b = new SolidBrush(Color.FromArgb(glassTint, 14, 18, 30))) g.FillPath(b, p);
-                using (var veil = new SolidBrush(Color.FromArgb(22, 255, 255, 255))) g.FillPath(veil, p);
-                using (var sheen = new LinearGradientBrush(box, Color.FromArgb(78, 255, 255, 255), Color.FromArgb(6, 255, 255, 255), 90f))
-                    g.FillPath(sheen, p);
+                using (var veil = new SolidBrush(Color.FromArgb(26, 255, 255, 255))) g.FillPath(veil, p);
+                // a light band along the top edge only: a sheen over the whole height washes the text areas out
+                var band = new RectangleF(x0, -2, w, Math.Min(h + 2, 120f));
+                var kept = g.Save();
+                g.SetClip(p);
+                using (var sheen = new LinearGradientBrush(band, Color.FromArgb(64, 255, 255, 255), Color.FromArgb(0, 255, 255, 255), 90f))
+                    g.FillRectangle(sheen, band);
+                g.Restore(kept);
             }
             else
             {
@@ -877,12 +904,12 @@ namespace Notchira
             Color ca = AccA, cb = AccB;
             var saved = g.Save();
             g.SetClip(p);
-            using (var wash = new LinearGradientBrush(box, Color.FromArgb(liquid ? 30 : 16, ca), Color.FromArgb(0, cb), 90f))
+            using (var wash = new LinearGradientBrush(box, Color.FromArgb(liquid ? 70 : 16, ca), Color.FromArgb(0, cb), 90f))
             using (var pen = new Pen(wash, 6f))
                 g.DrawPath(pen, p);
             g.Restore(saved);
-            using (var rim = new LinearGradientBrush(box, Color.FromArgb(liquid ? 165 : 70, ca), Color.FromArgb(liquid ? 40 : 18, cb), 90f))
-            using (var pen = new Pen(rim, 1.1f))
+            using (var rim = new LinearGradientBrush(box, Color.FromArgb(liquid ? 235 : 70, ca), Color.FromArgb(liquid ? 70 : 18, cb), 90f))
+            using (var pen = new Pen(rim, liquid ? 1.4f : 1.1f))
                 g.DrawPath(pen, p);
         }
 
@@ -929,7 +956,7 @@ namespace Notchira
         {
             using (var b = new SolidBrush(Wh(a, 250)))
                 g.DrawString(toast.Title, fSub, b, new RectangleF(x0 + 18, 8, w - 80, 18), sfNear);
-            using (var b = new SolidBrush(Wh(a, 165)))
+            using (var b = new SolidBrush(Wh(a, 210)))
                 g.DrawString(toast.Body, fComp, b, new RectangleF(x0 + 18, 26, w - 80, 18), sfNear);
             eyes.Draw(g, x0 + w - 36, 20, 0.95f, a);
             if (toast.Progress >= 0)
@@ -980,7 +1007,7 @@ namespace Notchira
                 try { ci = new CultureInfo("id-ID"); } catch { ci = CultureInfo.InvariantCulture; }
                 using (var b = new SolidBrush(Wh(a, 245)))
                     g.DrawString(now.ToString("HH:mm"), fClock, b, new RectangleF(ex, 34 + T, ExpSize.Width, 50), sfMid);
-                using (var b = new SolidBrush(Wh(a, 165)))
+                using (var b = new SolidBrush(Wh(a, 210)))
                     g.DrawString(now.ToString("dddd, d MMMM", ci), fSub, b, new RectangleF(ex, 86 + T, ExpSize.Width, 20), sfMid);
                 return;
             }
@@ -989,15 +1016,15 @@ namespace Notchira
             float tx = ex + TextX;
             using (var b = new SolidBrush(Wh(a, 250)))
                 g.DrawString(track.Title, fTitle, b, new RectangleF(tx, 20 + T, TextW, 22), sfNear);
-            using (var b = new SolidBrush(Wh(a, 165)))
+            using (var b = new SolidBrush(Wh(a, 210)))
                 g.DrawString(track.Artist, fSub, b, new RectangleF(tx, 43 + T, TextW, 20), sfNear);
             if (lyrics != null)
             {
                 int idx = lyrics.IndexAt(track.Now());
-                DrawLyricLine(g, tx, 62 + T, lyrics.Line(idx - 1), fSub, Wh(a, 165));
+                DrawLyricLine(g, tx, 62 + T, lyrics.Line(idx - 1), fSub, Wh(a, 210));
                 string now = idx >= 0 ? lyrics.Line(idx) : "";
                 DrawLyricLine(g, tx, 80 + T, now.Length > 0 ? now : "♪", fLyric, Wh(a, 255));
-                DrawLyricLine(g, tx, 101 + T, lyrics.Line(idx + 1), fSub, Wh(a, 165));
+                DrawLyricLine(g, tx, 101 + T, lyrics.Line(idx + 1), fSub, Wh(a, 210));
             }
 
             TimeSpan pos = track.Now(), dur = track.Duration;
@@ -1007,7 +1034,7 @@ namespace Notchira
             if (frac > 0.002f)
                 using (var b = new SolidBrush(Wh(a, 235)))
                     g.FillPath(b, RoundRect(new RectangleF(tx, BarY, Math.Max(4, TextW * frac), 4), 2));
-            using (var b = new SolidBrush(Wh(a, 165)))
+            using (var b = new SolidBrush(Wh(a, 210)))
             {
                 g.DrawString(Fmt(pos), fSmall, b, new RectangleF(tx, BarY + 8, 60, 14), sfNear);
                 if (dur > TimeSpan.Zero)
@@ -1089,16 +1116,38 @@ namespace Notchira
             }
         }
 
-        void Present()
+        // dev hook: NOTCHIRA_SNAP=<folder> makes the running app save its own frame (the island is excluded from
+        // screenshots) once the panel is open, with a line saying whether the glass backdrop was captured
+        static readonly string snapDir = Environment.GetEnvironmentVariable("NOTCHIRA_SNAP");
+        int snapAt;
+
+        void SnapLive()
+        {
+            if (string.IsNullOrEmpty(snapDir) || cur != Mode.Expanded || Math.Abs(sw.X - sw.T) > 1f || Math.Abs(sh.X - sh.T) > 1f) return;
+            if (Environment.TickCount - snapAt < 1500) return;
+            snapAt = Environment.TickCount;
+            try
+            {
+                Directory.CreateDirectory(snapDir);
+                frame.Save(Path.Combine(snapDir, "live-" + page.ToString().ToLowerInvariant() + ".png"), ImageFormat.Png);
+                File.AppendAllText(Path.Combine(snapDir, "live.log"), DateTime.Now.ToString("HH:mm:ss") + " page=" + page + " material=" + material +
+                    " glassOk=" + glassOk + " backdrop=" + (backdrop != null) + " tint=" + glassTint + Environment.NewLine);
+            }
+            catch { }
+        }
+
+        void Present() { Present(frame); }
+
+        void Present(Bitmap bmp)
         {
             IntPtr screenDc = Native.GetDC(IntPtr.Zero);
             IntPtr memDc = Native.CreateCompatibleDC(screenDc);
             IntPtr hBmp = IntPtr.Zero, old = IntPtr.Zero;
             try
             {
-                hBmp = frame.GetHbitmap(Color.FromArgb(0));
+                hBmp = bmp.GetHbitmap(Color.FromArgb(0));
                 old = Native.SelectObject(memDc, hBmp);
-                var size = new Native.SIZE { cx = frame.Width, cy = frame.Height };
+                var size = new Native.SIZE { cx = bmp.Width, cy = bmp.Height };
                 var src = new Native.POINT();
                 var dst = new Native.POINT { x = Left, y = Top };
                 var bf = new Native.BLENDFUNCTION { BlendOp = 0, BlendFlags = 0, SourceConstantAlpha = 255, AlphaFormat = 1 };

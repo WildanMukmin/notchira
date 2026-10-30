@@ -114,6 +114,9 @@ namespace Notchira
 
         static ProcessStartInfo NewStart(string args)
         {
+            // Without --encoding, yt-dlp drops every non-ASCII character it prints (Japanese titles lose their text even
+            // though the pipe is read as UTF-8), so titles and artists must be requested as UTF-8 explicitly.
+            if (!args.StartsWith("-U")) args = "--encoding utf-8 " + args;
             var psi = new ProcessStartInfo(Exe, args)
             {
                 UseShellExecute = false,
