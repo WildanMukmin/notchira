@@ -9,7 +9,7 @@ namespace Notchira
     // The island stays a no-activate layered window; only this small box takes focus when clicked.
     sealed class IslandInput : Form
     {
-        public static readonly Color Fill = Color.FromArgb(36, 36, 44);
+        public static readonly Color Fill = Color.FromArgb(54, 56, 68);
 
         public readonly TextBox Box = new TextBox();
         public event Action Submit, Cancel;

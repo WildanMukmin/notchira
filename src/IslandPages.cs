@@ -43,7 +43,7 @@ namespace Notchira
                     case Page.Library: return 324;
                     case Page.Ai: return 332;
                     case Page.Prompter: return 214;
-                    case Page.Setup: return 316;
+                    case Page.Setup: return 346;
                     default: return ExpH;
                 }
             }
@@ -126,8 +126,9 @@ namespace Notchira
                 var r = new RectangleF(x, y, w[i], 23);
                 bool on = (int)page == i;
                 string id = "tab" + i;
-                int bg = on ? 46 : hot == id ? 22 : 0;
-                if (bg > 0) using (var b = new SolidBrush(Wh(a, bg))) g.FillPath(b, RoundRect(r, 11.5f));
+                int bg = on ? 0 : hot == id ? 22 : 0;
+                if (on) using (var b = new SolidBrush(Color.FromArgb((int)(60 * Clamp01(a)), AccA))) g.FillPath(b, RoundRect(r, 11.5f));
+                else if (bg > 0) using (var b = new SolidBrush(Wh(a, bg))) g.FillPath(b, RoundRect(r, 11.5f));
                 Color c = Wh(a, on ? 250 : hot == id ? 215 : 140);
                 DrawTabIcon(g, i, on ? r.X + 18 : r.X + r.Width / 2, r.Y + r.Height / 2, c);
                 if (on)
@@ -197,7 +198,7 @@ namespace Notchira
         {
             bool h = hot == id;
             bool ask = Asking(id);
-            Color bg = ask ? Color.FromArgb((int)(220 * Clamp01(a)), 196, 52, 60) : Wh(a, on ? 235 : h ? 44 : 24);
+            Color bg = ask ? Color.FromArgb((int)(220 * Clamp01(a)), 196, 52, 60) : on ? AccLight(a) : Wh(a, h ? 44 : 24);
             using (var b = new SolidBrush(bg)) g.FillPath(b, RoundRect(r, Math.Min(r.Height / 2, 11)));
             Color fg = on && !ask ? Color.FromArgb((int)(255 * Clamp01(a)), 14, 14, 18) : Wh(a, h || ask ? 250 : 210);
             using (var b = new SolidBrush(fg))
@@ -252,7 +253,7 @@ namespace Notchira
         static string Cue(string id)
         {
             if (id == "url") return "Tautan YouTube, atau seret berkas musik ke sini";
-            if (id == "list") return "Nama daftar putar baru, lalu Enter";
+            if (id == "list") return "Nama daftar putar baru";
             if (id == "model") return "Nama model, mis. openai/gpt-oss-20b, lalu Enter";
             if (id == "vmodel") return "Model Gemini Live, atau suara Deepgram (aura-2-...)";
             return "Tanya apa saja, lalu Enter";
@@ -268,11 +269,12 @@ namespace Notchira
             fieldRect = r;
             using (var b = new SolidBrush(Color.FromArgb((int)(255 * Clamp01(a)), IslandInput.Fill)))
                 g.FillPath(b, RoundRect(r, 9));
+            using (var pen = new Pen(Wh(a, 36), 1f)) g.DrawPath(pen, RoundRect(r, 9));
             bool covered = input != null && input.Visible && inputFor == id;
             if (!covered)
             {
                 string d = Draft(id);
-                Txt(g, d.Length > 0 ? d : Cue(id), fRow, r.X + 10, r.Y + (r.Height - 17) / 2, r.Width - 20, Wh(a, d.Length > 0 ? 235 : 110));
+                Txt(g, d.Length > 0 ? d : Cue(id), fRow, r.X + 10, r.Y + (r.Height - 17) / 2, r.Width - 20, Wh(a, d.Length > 0 ? 235 : 165));
             }
             AddHit("field", r, delegate { pendingFocus = true; SyncInput(); });
         }
@@ -385,7 +387,7 @@ namespace Notchira
             if (!YtDlp.Installed)
             {
                 Txt(g, "yt-dlp belum terpasang", fComp, x, y, inner - 100, Wh(a, 230));
-                Txt(g, "Untuk tautan YouTube, sekitar 25 MB", fTiny, x, y + 17, inner - 190, Wh(a, 140));
+                Txt(g, "Untuk tautan YouTube, sekitar 25 MB", fTiny, x, y + 17, inner - 190, Wh(a, 165));
                 fieldId = null;
                 Pill(g, "tool", new RectangleF(ex + W - 18 - 90, y, 90, 30), toolBusy ? "Memasang..." : "Pasang", true, a,
                     toolBusy ? (Action)null : delegate { InstallTool(); });
@@ -394,17 +396,27 @@ namespace Notchira
             }
             else
             {
-                string fid = newList ? "list" : "url";
-                Field(g, fid, new RectangleF(x, y, inner - 96 - 90, 30), a);
-                Pill(g, "pick", new RectangleF(ex + W - 18 - 88 - 6 - 84, y, 84, 30), "Berkas...", false, a,
-                    impBusy ? (Action)null : delegate { PickFiles(); });
-                string label = newList ? "Buat" : dlBusy ? "Batal" : "Unduh";
-                Pill(g, "go", new RectangleF(ex + W - 18 - 88, y, 88, 30), label, true, a, delegate
+                var urlBox = new RectangleF(x, y, inner - 96 - 90, 30);
+                if (newList)
                 {
-                    if (newList) CreateList(CurrentText("list"));
-                    else if (dlBusy) YtDlp.Cancel();
-                    else StartDownload(CurrentText("url"));
-                });
+                    // the new list is named in the chips row below; this row waits
+                    using (var b = new SolidBrush(Color.FromArgb((int)(110 * Clamp01(a)), IslandInput.Fill))) g.FillPath(b, RoundRect(urlBox, 9));
+                    string held = Draft("url");
+                    Txt(g, held.Length > 0 ? held : Cue("url"), fRow, urlBox.X + 10, urlBox.Y + (urlBox.Height - 17) / 2, urlBox.Width - 20, Wh(a, 80));
+                    Pill(g, "pick", new RectangleF(ex + W - 18 - 88 - 6 - 84, y, 84, 30), "Berkas...", false, a * 0.45f, null);
+                    Pill(g, "go", new RectangleF(ex + W - 18 - 88, y, 88, 30), "Unduh", true, a * 0.45f, null);
+                }
+                else
+                {
+                    Field(g, "url", urlBox, a);
+                    Pill(g, "pick", new RectangleF(ex + W - 18 - 88 - 6 - 84, y, 84, 30), "Berkas...", false, a,
+                        impBusy ? (Action)null : delegate { PickFiles(); });
+                    Pill(g, "go", new RectangleF(ex + W - 18 - 88, y, 88, 30), dlBusy ? "Batal" : "Unduh", true, a, delegate
+                    {
+                        if (dlBusy) YtDlp.Cancel();
+                        else StartDownload(CurrentText("url"));
+                    });
+                }
             }
 
             if ((dlBusy || impBusy) && dlPct >= 0)
@@ -412,18 +424,18 @@ namespace Notchira
                 using (var b = new SolidBrush(Wh(a, 40))) g.FillPath(b, RoundRect(new RectangleF(x, 70, inner, 3), 1.5f));
                 using (var b = new SolidBrush(Wh(a, 230))) g.FillPath(b, RoundRect(new RectangleF(x, 70, Math.Max(3, inner * dlPct / 100f), 3), 1.5f));
             }
-            Txt(g, ytStatus, fTiny, x, 76, inner, Wh(a, 140));
+            Txt(g, ytStatus, fTiny, x, 76, inner, Wh(a, 165));
 
             // playlists, or the playlists to add a song to
             float cy = 96, ch = 22;
             var save = g.Save();
-            g.IntersectClip(new RectangleF(x, cy - 1, inner, ch + 2));
+            g.IntersectClip(newList && addTo == null ? new RectangleF(x - 1, cy - 4, inner + 2, 30) : new RectangleF(x, cy - 1, inner, ch + 2));
             if (addTo != null)
             {
-                Txt(g, "Tambahkan ke:", fTiny, x, cy + 4, 90, Wh(a, 160));
+                Txt(g, "Tambahkan ke:", fTiny, x, cy + 4, 90, Wh(a, 165));
                 float px = x + 84;
                 var names = Library.PlaylistNames();
-                if (names.Count == 0) Txt(g, "belum ada daftar putar, buat dulu dengan + Daftar", fTiny, px, cy + 4, inner - 84, Wh(a, 120));
+                if (names.Count == 0) Txt(g, "belum ada daftar putar, buat dulu dengan + Daftar", fTiny, px, cy + 4, inner - 84, Wh(a, 165));
                 foreach (string n in names)
                 {
                     string name = n;
@@ -437,6 +449,16 @@ namespace Notchira
                     px += w + 6;
                 }
                 Pill(g, "addcancel", new RectangleF(px, cy, PillW(g, "Batal"), ch), "Batal", false, a, delegate { addTo = null; });
+            }
+            else if (newList)
+            {
+                Field(g, "list", new RectangleF(x, cy - 3, inner - 142, 28), a);
+                Pill(g, "listok", new RectangleF(x + inner - 134, cy - 3, 64, 28), "Buat", true, a, delegate { CreateList(CurrentText("list")); });
+                Pill(g, "listcancel", new RectangleF(x + inner - 64, cy - 3, 64, 28), "Batal", false, a, delegate
+                {
+                    newList = false;
+                    ClearField("list");
+                });
             }
             else
             {
@@ -459,7 +481,7 @@ namespace Notchira
                         px += (Asking("dellist") ? 52 : 24) + 4;
                     }
                 }
-                Pills(g, px, cy, ch, a, "newlist", "+ Daftar", newList, (Action)delegate { newList = !newList; pendingFocus = newList; });
+                Pills(g, px, cy, ch, a, "newlist", "+ Daftar", false, (Action)delegate { newList = !newList; pendingFocus = newList; });
             }
             g.Restore(save);
 
@@ -467,8 +489,8 @@ namespace Notchira
             float ly = 126;
             if (songs.Count == 0)
             {
-                string msg = listName == null ? "Belum ada lagu. Seret berkas musik ke sini, pilih Berkas..., atau tempel tautan YouTube." : "Daftar ini masih kosong. Tambahkan lagu dengan tombol + di baris lagu.";
-                using (var b = new SolidBrush(Wh(a, 120)))
+                string msg = listName == null ? "Belum ada lagu. Seret berkas musik ke sini, pilih Berkas..., atau tempel tautan YouTube." : "Daftar kosong. Isi lewat Semua lagu: arahkan kursor, tekan + daftar.";
+                using (var b = new SolidBrush(Wh(a, 165)))
                     g.DrawString(msg, fComp, b, new RectangleF(ex, ly + 60, W, 18), sfMid);
             }
             Song playing = LocalPlayer.I.Current;
@@ -490,7 +512,7 @@ namespace Notchira
                 Txt(g, s.Title, fComp, tx, row.Y + 5, tw - 14, Wh(a, 240));
                 if (!h)
                 {
-                    using (var b = new SolidBrush(Wh(a, 120)))
+                    using (var b = new SolidBrush(Wh(a, 165)))
                         g.DrawString(Fmt(TimeSpan.FromSeconds(s.Seconds)), fTiny, b, new RectangleF(x + inner - 44, row.Y + 6, 44, 14), sfFar);
                     continue;
                 }
@@ -657,9 +679,11 @@ namespace Notchira
         void CreateList(string name)
         {
             if (!Library.CreatePlaylist(name)) { ytStatus = "Nama daftar kosong atau sudah ada."; Render(); return; }
-            listName = name.Trim();
+            listName = null;
+            listTop = 0;
             newList = false;
             ClearField("list");
+            ytStatus = "Daftar \"" + name.Trim() + "\" dibuat. Arahkan kursor ke lagu, lalu tekan + daftar.";
             ReloadSongs();
             Render();
         }
@@ -729,7 +753,7 @@ namespace Notchira
             {
                 var p = Ai.Find(prov);
                 string m = Secrets.Has(prov) ? "Model: " + Ai.Model(p) : "Belum ada kunci " + p.Name + ". Klik Kunci untuk menambahkan.";
-                using (var b = new SolidBrush(Wh(a, 130)))
+                using (var b = new SolidBrush(Wh(a, 165)))
                 {
                     g.DrawString("Tanya apa saja. Jawabannya tampil di sini.", fComp, b, new RectangleF(ex, area.Y + 76, W, 18), sfMid);
                     g.DrawString(m, fTiny, b, new RectangleF(ex, area.Y + 96, W, 16), sfMid);
@@ -766,7 +790,7 @@ namespace Notchira
                     }
                     y += kv.Value + 8;
                 }
-                if (aiBusy) Txt(g, "Asisten sedang berpikir...", fComp, area.X, y + 2, tw, Wh(a, 140));
+                if (aiBusy) Txt(g, "Asisten sedang berpikir...", fComp, area.X, y + 2, tw, Wh(a, 165));
                 g.Restore(save);
                 if (total > area.Height)
                 {
@@ -797,7 +821,7 @@ namespace Notchira
                     aiBusy ? (Action)null : delegate { Send(CurrentText("ai")); });
             }
 
-            Txt(g, aiStatus, fTiny, x, 310, inner - 110, Wh(a, 140));
+            Txt(g, aiStatus, fTiny, x, 310, inner - 110, Wh(a, 165));
             var last = history.LastOrDefault(m => m.Role == "assistant");
             if (last != null)
                 Pill(g, "copy", new RectangleF(x + inner - 100, 307, 100, 20), "Salin jawaban", false, a, delegate
@@ -878,7 +902,7 @@ namespace Notchira
                 else
                 {
                     string tag = m == p.DefaultModel ? "bawaan" : p.Suggested.Contains(m) ? "saran" : added.Contains(m) ? "tambahanmu" : "";
-                    using (var b = new SolidBrush(Wh(a, 110)))
+                    using (var b = new SolidBrush(Wh(a, 165)))
                         g.DrawString(tag, fSmall, b, new RectangleF(row.Right - 86, row.Y + 6, 78, 14), sfFar);
                 }
             }
@@ -930,7 +954,7 @@ namespace Notchira
                     });
                 }
                 else
-                    using (var b = new SolidBrush(Wh(a, 110)))
+                    using (var b = new SolidBrush(Wh(a, 165)))
                         g.DrawString(prov == "gemini" ? "Gemini Live" : "Deepgram", fSmall, b, new RectangleF(row.Right - 106, row.Y + 6, 98, 14), sfFar);
             }
         }
@@ -1203,7 +1227,7 @@ namespace Notchira
             int wpm = Num("prompter.wpm", 140, 60, 400), px = Num("prompter.size", 19, 14, 48);
             string first = "";
             foreach (string l in script.Split('\n')) { if (l.Trim().Length > 0) { first = l.Trim(); break; } }
-            Txt(g, "Naskah terakhir", fSmall, x, 38, inner, Wh(a, 120));
+            Txt(g, "Naskah terakhir", fSmall, x, 38, inner, Wh(a, 165));
             if (first.Length == 0)
                 Txt(g, "Belum ada naskah. Buka editor untuk menulis atau mengimpor.", fSub, x, 54, inner, Wh(a, 200));
             else
@@ -1211,7 +1235,7 @@ namespace Notchira
                 Txt(g, first, fTitle, x, 53, inner, Wh(a, 245));
                 int words = Teleprompter.CountWords(script);
                 int secs = (int)Math.Round(words / (double)wpm * 60);
-                Txt(g, words + " kata  \u00B7  perkiraan " + (secs / 60) + ":" + (secs % 60).ToString("00") + " pada " + wpm + " wpm", fTiny, x, 76, inner, Wh(a, 140));
+                Txt(g, words + " kata  \u00B7  perkiraan " + (secs / 60) + ":" + (secs % 60).ToString("00") + " pada " + wpm + " wpm", fTiny, x, 76, inner, Wh(a, 165));
             }
 
             float y = 104;
@@ -1239,7 +1263,7 @@ namespace Notchira
                 Teleprompter.Start(script);
             });
             Pills(g, bx, 170, 26, a, "peditor", "Editor naskah", false, (Action)delegate { Teleprompter.ShowEditor(); });
-            using (var b = new SolidBrush(Wh(a, 110)))
+            using (var b = new SolidBrush(Wh(a, 165)))
                 g.DrawString("Ctrl+Alt+Spasi jeda  \u00B7  Ctrl+Alt+X hentikan  \u00B7  Ctrl+Alt+P editor", fSmall, b, new RectangleF(x, 199, inner, 14), sfFar);
         }
 
@@ -1269,7 +1293,22 @@ namespace Notchira
                 "mc:text", "Judul / lirik", mc == "text", (Action)delegate { Settings.Set("music.compact", "text"); Retarget(); },
                 "mc:eyes", "Mata saja", mc == "eyes", (Action)delegate { Settings.Set("music.compact", "eyes"); Retarget(); });
 
-            float cw = (inner - 10) / 2, c2 = x + cw + 10, ry = 128, rh = 28;
+            Txt(g, "Warna aksen", fComp, x, 130, 140, Wh(a, 190));
+            float sx = x + inner - AccentIds.Length * 26 + 6;
+            for (int i = 0; i < AccentIds.Length; i++)
+            {
+                int k = i;
+                var sr = new RectangleF(sx + i * 26, 128, 20, 20);
+                using (var b = new LinearGradientBrush(sr, Color.FromArgb((int)(255 * Clamp01(a)), AccentA[i]), Color.FromArgb((int)(255 * Clamp01(a)), AccentB[i]), 45f))
+                    g.FillEllipse(b, sr);
+                if (AccentIndex == i)
+                    using (var pen = new Pen(Wh(a, 245), 1.8f)) g.DrawEllipse(pen, sr.X - 3, sr.Y - 3, sr.Width + 6, sr.Height + 6);
+                else if (hot == "acc:" + AccentIds[i])
+                    using (var pen = new Pen(Wh(a, 110), 1.4f)) g.DrawEllipse(pen, sr.X - 3, sr.Y - 3, sr.Width + 6, sr.Height + 6);
+                AddHit("acc:" + AccentIds[i], new RectangleF(sr.X - 3, sr.Y - 3, sr.Width + 6, sr.Height + 6), delegate { Settings.Set("accent", AccentIds[k]); });
+            }
+
+            float cw = (inner - 10) / 2, c2 = x + cw + 10, ry = 158, rh = 28;
             Func<string, string, bool> on = (k, d) => Settings.Get(k, d) == "1";
             Action<string, string> flip = (k, d) => Settings.Set(k, on(k, d) ? "0" : "1");
             Switch(g, "s:sound", new RectangleF(x - 8, ry, cw + 8, rh), "Efek suara", on("sound", "1"), a, delegate { flip("sound", "1"); });
@@ -1280,10 +1319,10 @@ namespace Notchira
             Switch(g, "s:fb", new RectangleF(c2, ry + 2 * rh, cw + 8, rh), "Asisten pindah penyedia", on("ai.fallback", "1"), a, delegate { flip("ai.fallback", "1"); });
 
             Switch(g, "s:barge", new RectangleF(x - 8, ry + 3 * rh, cw + 8, rh), "Sela AI saat bicara", on("voice.bargein", "0"), a, delegate { flip("voice.bargein", "0"); });
-            using (var b = new SolidBrush(Wh(a, 110)))
-                g.DrawString("hanya dengan headset, speaker bisa memotong dirinya", fSmall, b, new RectangleF(c2 + 8, ry + 3 * rh + 8, cw, 14), sfNear);
+            using (var b = new SolidBrush(Wh(a, 165)))
+                g.DrawString("khusus pemakaian headset", fSmall, b, new RectangleF(c2 + 8, ry + 3 * rh + 8, cw, 14), sfNear);
 
-            float by = 256;
+            float by = 286;
             float bx = Pills(g, x, by, 24, a,
                 "keys2", "Kunci API", false, (Action)delegate { KeysWindow.ShowWindow(Settings.Get("ai.provider", "groq")); },
                 "folder", "Folder data", false, (Action)delegate { try { Directory.CreateDirectory(Settings.Dir); Process.Start(Settings.Dir); } catch { } },
@@ -1293,8 +1332,8 @@ namespace Notchira
             {
                 if (Confirmed("quit")) Application.Exit();
             });
-            using (var b = new SolidBrush(Wh(a, 110)))
-                g.DrawString("Ctrl+Alt+H sembunyikan  \u00B7  Ctrl+Alt+K mini  \u00B7  Ctrl+Alt+A asisten  \u00B7  Ctrl+Alt+V suara", fSmall, b, new RectangleF(x, 292, inner, 14), sfMid);
+            using (var b = new SolidBrush(Wh(a, 165)))
+                g.DrawString("Ctrl+Alt+H sembunyikan  \u00B7  Ctrl+Alt+K mini  \u00B7  Ctrl+Alt+A asisten  \u00B7  Ctrl+Alt+V suara", fSmall, b, new RectangleF(x, 322, inner, 14), sfMid);
         }
 
         // ---- wheel ----------------------------------------------------------------------------------------------

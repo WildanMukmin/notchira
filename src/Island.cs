@@ -16,7 +16,7 @@ namespace Notchira
     // The window is allocated once at the largest size; only the notch shape inside it grows and shrinks.
     sealed partial class Island : Form
     {
-        const float MaxW = 460, MaxH = 340;
+        const float MaxW = 460, MaxH = 360;
         static readonly SizeF IdleSize = new SizeF(96, 24);
         static readonly SizeF MiniSize = new SizeF(56, 11);
         static readonly SizeF CompSize = new SizeF(250, 32);
@@ -87,7 +87,26 @@ namespace Notchira
         Mode cur = Mode.Idle;
         bool hover, pausedRecent, userHidden, fsHidden, glassOk;
         string material;
-        int glassTint = 58;   // alpha of the dark layer over the glass, raised on bright backgrounds
+
+        // Accent colour: tints the thin rim and the selected tab and pills. Neutral (silver) is the default; two colours make the rim gradient.
+        static readonly string[] AccentIds = { "neutral", "blue", "violet", "purple", "emerald", "orange" };
+        static readonly string[] AccentNames = { "Netral", "Electric Blue", "Violet", "Purple", "Emerald", "Orange" };
+        static readonly Color[] AccentA = { Color.FromArgb(236, 240, 248), Color.FromArgb(70, 140, 255), Color.FromArgb(200, 120, 255), Color.FromArgb(140, 92, 255), Color.FromArgb(52, 211, 153), Color.FromArgb(255, 164, 64) };
+        static readonly Color[] AccentB = { Color.FromArgb(150, 160, 180), Color.FromArgb(150, 96, 255), Color.FromArgb(245, 120, 215), Color.FromArgb(86, 124, 255), Color.FromArgb(40, 190, 235), Color.FromArgb(255, 100, 130) };
+
+        static int AccentIndex
+        {
+            get { int i = Array.IndexOf(AccentIds, Settings.Get("accent", "neutral")); return i < 0 ? 0 : i; }
+        }
+        static Color AccA { get { return AccentA[AccentIndex]; } }
+        static Color AccB { get { return AccentB[AccentIndex]; } }
+        // the accent mixed with white: the fill of a selected pill, which keeps dark text
+        static Color AccLight(float a)
+        {
+            Color c = AccA;
+            return Color.FromArgb((int)(240 * Clamp01(a)), c.R + (255 - c.R) * 55 / 100, c.G + (255 - c.G) * 55 / 100, c.B + (255 - c.B) * 55 / 100);
+        }
+        int glassTint = 84;   // alpha of the dark layer over the glass, raised on bright backgrounds
 
         NotifyIcon tray;
         ContextMenuStrip menu;
@@ -728,7 +747,7 @@ namespace Notchira
                         if (useFake) using (var img = Image.FromFile(fake)) g.DrawImage(img, 0, 0, W, H);
                         else g.CopyFromScreen(Left, Top, 0, 0, new Size(W, H));
                     }
-                    int w2 = Math.Max(8, W / 10), h2 = Math.Max(4, H / 10);
+                    int w2 = Math.Max(8, W / 24), h2 = Math.Max(4, H / 24);   // coarse on purpose: a smooth frost, not shapes from the window behind
                     using (var small = new Bitmap(w2, h2, PixelFormat.Format32bppRgb))
                     {
                         using (var g = Graphics.FromImage(small))
@@ -747,7 +766,7 @@ namespace Notchira
                                 n++;
                             }
                         double lum = n > 0 ? sum / n : 0;
-                        glassTint = 58 + (int)(Math.Max(0, Math.Min(1, (lum - 0.35) / 0.55)) * 112);
+                        glassTint = 84 + (int)(Math.Max(0, Math.Min(1, (lum - 0.35) / 0.55)) * 126);
                         if (backdrop == null || backdrop.Width != W || backdrop.Height != H)
                         {
                             if (backdrop != null) backdrop.Dispose();
@@ -855,9 +874,15 @@ namespace Notchira
             {
                 using (var b = new SolidBrush(Color.FromArgb(255, 6, 6, 8))) g.FillPath(b, p);
             }
-            int a0 = liquid ? 170 : 46, a1 = liquid ? 48 : 12;
-            using (var rim = new LinearGradientBrush(box, Color.FromArgb(a0, 255, 255, 255), Color.FromArgb(a1, 255, 255, 255), 90f))
-            using (var pen = new Pen(rim, 1f))
+            Color ca = AccA, cb = AccB;
+            var saved = g.Save();
+            g.SetClip(p);
+            using (var wash = new LinearGradientBrush(box, Color.FromArgb(liquid ? 30 : 16, ca), Color.FromArgb(0, cb), 90f))
+            using (var pen = new Pen(wash, 6f))
+                g.DrawPath(pen, p);
+            g.Restore(saved);
+            using (var rim = new LinearGradientBrush(box, Color.FromArgb(liquid ? 165 : 70, ca), Color.FromArgb(liquid ? 40 : 18, cb), 90f))
+            using (var pen = new Pen(rim, 1.1f))
                 g.DrawPath(pen, p);
         }
 
@@ -955,7 +980,7 @@ namespace Notchira
                 try { ci = new CultureInfo("id-ID"); } catch { ci = CultureInfo.InvariantCulture; }
                 using (var b = new SolidBrush(Wh(a, 245)))
                     g.DrawString(now.ToString("HH:mm"), fClock, b, new RectangleF(ex, 34 + T, ExpSize.Width, 50), sfMid);
-                using (var b = new SolidBrush(Wh(a, 140)))
+                using (var b = new SolidBrush(Wh(a, 165)))
                     g.DrawString(now.ToString("dddd, d MMMM", ci), fSub, b, new RectangleF(ex, 86 + T, ExpSize.Width, 20), sfMid);
                 return;
             }
@@ -964,15 +989,15 @@ namespace Notchira
             float tx = ex + TextX;
             using (var b = new SolidBrush(Wh(a, 250)))
                 g.DrawString(track.Title, fTitle, b, new RectangleF(tx, 20 + T, TextW, 22), sfNear);
-            using (var b = new SolidBrush(Wh(a, 160)))
+            using (var b = new SolidBrush(Wh(a, 165)))
                 g.DrawString(track.Artist, fSub, b, new RectangleF(tx, 43 + T, TextW, 20), sfNear);
             if (lyrics != null)
             {
                 int idx = lyrics.IndexAt(track.Now());
-                DrawLyricLine(g, tx, 62 + T, lyrics.Line(idx - 1), fSub, Wh(a, 105));
+                DrawLyricLine(g, tx, 62 + T, lyrics.Line(idx - 1), fSub, Wh(a, 165));
                 string now = idx >= 0 ? lyrics.Line(idx) : "";
                 DrawLyricLine(g, tx, 80 + T, now.Length > 0 ? now : "♪", fLyric, Wh(a, 255));
-                DrawLyricLine(g, tx, 101 + T, lyrics.Line(idx + 1), fSub, Wh(a, 105));
+                DrawLyricLine(g, tx, 101 + T, lyrics.Line(idx + 1), fSub, Wh(a, 165));
             }
 
             TimeSpan pos = track.Now(), dur = track.Duration;
@@ -982,7 +1007,7 @@ namespace Notchira
             if (frac > 0.002f)
                 using (var b = new SolidBrush(Wh(a, 235)))
                     g.FillPath(b, RoundRect(new RectangleF(tx, BarY, Math.Max(4, TextW * frac), 4), 2));
-            using (var b = new SolidBrush(Wh(a, 130)))
+            using (var b = new SolidBrush(Wh(a, 165)))
             {
                 g.DrawString(Fmt(pos), fSmall, b, new RectangleF(tx, BarY + 8, 60, 14), sfNear);
                 if (dur > TimeSpan.Zero)
@@ -1395,6 +1420,8 @@ namespace Notchira
             history.Add(new AiMessage("user", "Apa ibu kota Australia?"));
             history.Add(new AiMessage("assistant", "Ibu kota Australia adalah Canberra, bukan Sydney. Canberra dipilih sebagai jalan tengah antara Sydney dan Melbourne, dan resmi menjadi ibu kota pada 1913."));
             drafts["url"] = "";
+            // dev hook: NOTCHIRA_NEWLIST=1 dumps the Pustaka tab while a new list is being named
+            if (Environment.GetEnvironmentVariable("NOTCHIRA_NEWLIST") == "1") { newList = true; drafts["url"] = "https://youtube.com/playlist?list=PL123"; }
             var order = new[] { Page.Music, Page.Library, Page.Ai, Page.Prompter, Page.Setup };
             int step = 0;
             var t = new Timer { Interval = 1100 };
