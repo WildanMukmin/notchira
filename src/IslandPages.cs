@@ -43,7 +43,7 @@ namespace Notchira
                     case Page.Library: return 324;
                     case Page.Ai: return 332;
                     case Page.Prompter: return 214;
-                    case Page.Setup: return 346;
+                    case Page.Setup: return 374;
                     default: return ExpH;
                 }
             }
@@ -1332,8 +1332,19 @@ namespace Notchira
             {
                 if (Confirmed("quit")) Application.Exit();
             });
+            // version and update
+            string vtxt = Updater.Status.Length > 0 ? Updater.Status : "Notchira v" + Updater.Current;
+            Txt(g, vtxt.StartsWith("Notchira") ? vtxt : "v" + Updater.Current + "  ·  " + vtxt, fComp, x, 322, inner - 130, Wh(a, 200));
+            string ulabel = Updater.Busy ? "Tunggu..." : Updater.Available ? "Perbarui ke v" + Updater.Latest : "Cek pembaruan";
+            float uw = PillW(g, ulabel);
+            Pill(g, "upd", new RectangleF(x + inner - uw, 318, uw, 24), ulabel, Updater.Available, a, Updater.Busy ? (Action)null : delegate
+            {
+                if (Updater.Available) Updater.Apply(() => Post(delegate { }), () => BeginInvoke((Action)delegate { Application.Exit(); }));
+                else Updater.Check(true, () => Post(delegate { }));
+                Render();
+            });
             using (var b = new SolidBrush(Wh(a, 210)))
-                g.DrawString("Ctrl+Alt+H sembunyikan  \u00B7  Ctrl+Alt+K mini  \u00B7  Ctrl+Alt+A asisten  \u00B7  Ctrl+Alt+V suara", fSmall, b, new RectangleF(x, 322, inner, 14), sfMid);
+                g.DrawString("Ctrl+Alt+H sembunyikan  \u00B7  Ctrl+Alt+K mini  \u00B7  Ctrl+Alt+A asisten  \u00B7  Ctrl+Alt+V suara", fSmall, b, new RectangleF(x, 350, inner, 14), sfMid);
         }
 
         // ---- wheel ----------------------------------------------------------------------------------------------

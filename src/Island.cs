@@ -177,7 +177,7 @@ namespace Notchira
             nodTimer.Tick += delegate { if (Visible && track != null && track.Playing) { eyes.Nod(); Kick(); } };
             sleepTimer.Tick += delegate { sleepTimer.Stop(); asleep = true; UpdateMood(); };
             toastTimer.Tick += delegate { toastTimer.Stop(); toast = null; Retarget(); Render(); };
-            lyricTimer.Tick += delegate { lyricTimer.Stop(); Render(); ScheduleLyric(); };
+            lyricTimer.Tick += delegate { lyricTimer.Stop(); if (cur == Mode.Compact) Retarget(); Render(); ScheduleLyric(); };
             media.Changed += OnTrack;
             LocalPlayer.I.Changed += OnLocal;
             Secrets.Switched += delegate(string prov, string from, string to)
@@ -255,6 +255,8 @@ namespace Notchira
         {
             base.OnShown(e);
             slow.Start();
+            Updater.CleanUp();
+            if (Updater.DueForAutoCheck()) Updater.Check(false, () => Post(delegate { }));
             InitAutostart();
             InitStartShortcut();
             trimTimer.Start();
@@ -335,7 +337,7 @@ namespace Notchira
                 tick.Enabled = m == Mode.Expanded;
                 tickCount = 0;
             }
-            SizeF z = m == Mode.Mini ? MiniSize : m == Mode.Idle ? IdleSize : m == Mode.Compact ? CompSize : m == Mode.Toast ? ToastSize : new SizeF(ExpSize.Width, PageH);
+            SizeF z = m == Mode.Mini ? MiniSize : m == Mode.Idle ? IdleSize : m == Mode.Compact ? new SizeF(CompWidth(), CompSize.Height) : m == Mode.Toast ? ToastSize : new SizeF(ExpSize.Width, PageH);
             sw.T = z.Width;
             sh.T = z.Height;
             if (!anim.Enabled) Kick();
@@ -940,6 +942,29 @@ namespace Notchira
             if (tExp > 0.02f) DrawExpanded(g, x0, tExp * tExp, building != null);
         }
 
+        // The normal (compact) island grows sideways to fit the line it shows, up to CompMax, and shrinks back for a
+        // short one; its height stays the same. A line that is still wider is shrunk to 85% and then ends in an ellipsis.
+        const float CompMax = 400, CompText = 84;
+        static readonly Bitmap measureBmp = new Bitmap(1, 1);
+
+        string CompactText()
+        {
+            if (voice != null) return "";
+            string line = track != null && track.Playing ? CurrentLine() : "";
+            return track == null ? "" : line.Length > 0 ? line : track.Title;
+        }
+
+        float CompWidth()
+        {
+            string text = CompactText();
+            if (text.Length == 0) return CompSize.Width;
+            using (var g = Graphics.FromImage(measureBmp))
+            {
+                float tw = g.MeasureString(text, fComp, 100000, StringFormat.GenericTypographic).Width;
+                return Math.Max(CompSize.Width, Math.Min(CompMax, tw + CompText + 6));
+            }
+        }
+
         void DrawCompact(Graphics g, float x0, float w, float a)
         {
             if (voice != null)
@@ -955,9 +980,12 @@ namespace Notchira
                 return;
             }
             DrawArt(g, new RectangleF(x0 + 10, 5, 22, 22), 5, a);
-            string line = track.Playing ? CurrentLine() : "";
+            string shown = CompactText();
+            Font cf = fComp;
+            float room = w - 40 - 44, sw0 = g.MeasureString(shown, fComp, 100000, StringFormat.GenericTypographic).Width;
+            if (sw0 > room) cf = LyricFont(fComp, Math.Max(fComp.Size * 0.85f, fComp.Size * room / sw0));
             using (var b = new SolidBrush(Wh(a, 240)))
-                g.DrawString(line.Length > 0 ? line : track.Title, fComp, b, new RectangleF(x0 + 40, 8, w - 40 - 44, 18), sfNear);
+                g.DrawString(shown, cf, b, new RectangleF(x0 + 40, 8, room, 18), sfNear);
             eyes.Draw(g, x0 + w - 27, 16, 0.85f, a);
         }
 
@@ -978,11 +1006,42 @@ namespace Notchira
             }
         }
 
-        static void DrawLyricLine(Graphics g, float x, float y, string text, Font f, Color c)
+        // A lyric line first shrinks a little (to 85%) to fit the text column. If it is still too wide, the sung line slides
+        // sideways while it is sung, so its end is in view when the next line starts; the other two lines end in an
+        // ellipsis. The panel keeps its height. Shrunk fonts are cached by size, so nothing is allocated per frame.
+        static readonly Dictionary<int, Font> lyricFonts = new Dictionary<int, Font>();
+
+        static Font LyricFont(Font f, float px)
+        {
+            int key = (int)(px * 2) * 10 + (f.Bold ? 1 : 0) + (f.FontFamily.Name.Contains("Semibold") ? 2 : 0);
+            Font r;
+            if (!lyricFonts.TryGetValue(key, out r))
+                lyricFonts[key] = r = new Font(f.FontFamily, (int)(px * 2) / 2f, f.Style, GraphicsUnit.Pixel);
+            return r;
+        }
+
+        // slide is how far through the line the song is (0 to 1); negative for the lines that do not slide.
+        static void DrawLyricLine(Graphics g, float x, float y, string text, Font f, Color c, float slide)
         {
             if (text == null) return;
+            if (text.Length == 0) text = "♪";
+            float w = g.MeasureString(text, f, 100000, StringFormat.GenericTypographic).Width;
+            if (w > TextW) { f = LyricFont(f, Math.Max(f.Size * 0.85f, f.Size * TextW / w)); w = g.MeasureString(text, f, 100000, StringFormat.GenericTypographic).Width; }
             using (var b = new SolidBrush(c))
-                g.DrawString(text.Length > 0 ? text : "\u266A", f, b, new RectangleF(x, y, TextW, 20), sfNear);
+            {
+                if (w <= TextW || slide < 0)
+                {
+                    g.DrawString(text, f, b, new RectangleF(x, y, TextW, 20), sfNear);
+                    return;
+                }
+                // rest at the start, glide, rest at the end
+                float t = Math.Max(0f, Math.Min(1f, (slide - 0.15f) / 0.7f));
+                t = t * t * (3f - 2f * t);
+                var clip = g.Clip;
+                g.SetClip(new RectangleF(x, y - 2, TextW, 24), CombineMode.Intersect);
+                g.DrawString(text, f, b, new RectangleF(x - (w - TextW + 2) * t, y, w + 24, 20), sfNear);
+                g.Clip = clip;
+            }
         }
 
         void DrawExpanded(Graphics g, float ex, float a, bool live)
@@ -1030,10 +1089,10 @@ namespace Notchira
             if (lyrics != null)
             {
                 int idx = lyrics.IndexAt(track.Now());
-                DrawLyricLine(g, tx, 62 + T, lyrics.Line(idx - 1), fSub, Wh(a, 210));
+                DrawLyricLine(g, tx, 62 + T, lyrics.Line(idx - 1), fSub, Wh(a, 210), -1);
                 string now = idx >= 0 ? lyrics.Line(idx) : "";
-                DrawLyricLine(g, tx, 80 + T, now.Length > 0 ? now : "♪", fLyric, Wh(a, 255));
-                DrawLyricLine(g, tx, 101 + T, lyrics.Line(idx + 1), fSub, Wh(a, 210));
+                DrawLyricLine(g, tx, 80 + T, now.Length > 0 ? now : "♪", fLyric, Wh(a, 255), LyricProgress(idx));
+                DrawLyricLine(g, tx, 101 + T, lyrics.Line(idx + 1), fSub, Wh(a, 210), -1);
             }
 
             TimeSpan pos = track.Now(), dur = track.Duration;
@@ -1104,6 +1163,15 @@ namespace Notchira
                 int target = (int)Math.Round(Clamp01((p.X - bx) / bw) * 100);
                 LocalPlayer.I.AdjustVolume(target - (int)Math.Round(LocalPlayer.I.Volume * 100));
             });
+        }
+
+        // How far through line idx the song is: 0 at its start, 1 when the next line starts (5 s for the last one).
+        float LyricProgress(int idx)
+        {
+            if (idx < 0 || lyrics == null) return 0;
+            double start = lyrics.Times[idx].TotalSeconds;
+            double end = idx + 1 < lyrics.Times.Length ? lyrics.Times[idx + 1].TotalSeconds : start + 5;
+            return (float)Math.Max(0, Math.Min(1, (track.Now().TotalSeconds - start) / Math.Max(0.5, end - start)));
         }
 
         static void DrawSkip(Graphics g, Brush b, float cx, float cy, int dir)
