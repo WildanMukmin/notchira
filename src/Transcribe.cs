@@ -24,30 +24,63 @@ namespace Notchira
             get { return Environment.GetEnvironmentVariable("NOTCHIRA_DEEPGRAM_URL") ?? "https://api.deepgram.com/v1/listen"; }
         }
 
-        public static bool Available { get { return Secrets.Has("groq") || Secrets.Has("deepgram"); } }
+        public static bool Available
+        {
+            get
+            {
+                string p = Provider;
+                return (p != "deepgram" && Secrets.Has("groq")) || (p != "groq" && Secrets.Has("deepgram"));
+            }
+        }
 
-        // Returns LRC text, or null with a reason in error.
-        public static string Run(string audioPath, out string source, out string error)
+        // Which service transcribes: "auto" tries Groq, then Deepgram; "groq" or "deepgram" uses only that one.
+        public static string Provider
+        {
+            get { string v = Settings.Get("transcribe.provider", "auto"); return v == "groq" || v == "deepgram" ? v : "auto"; }
+        }
+
+        // The language handed to the speech model. A model left to detect the language by itself sometimes picks a wrong
+        // one (a Japanese song written out as Russian), so a language is always given when one is known: the one chosen
+        // in the Kunci API window, otherwise the script of the title and artist (kana is Japanese, hangul Korean, Cyrillic
+        // Russian). Empty means the model decides.
+        public static string LanguageFor(string titleAndArtist)
+        {
+            string chosen = Settings.Get("lyrics.lang", "");
+            if (chosen.Length > 0 && chosen.Length <= 8) return chosen;
+            bool kana = false, hangul = false, cyr = false;
+            foreach (char c in titleAndArtist ?? "")
+            {
+                if (c >= 0x3040 && c <= 0x30FF) kana = true;
+                else if ((c >= 0xAC00 && c <= 0xD7AF) || (c >= 0x1100 && c <= 0x11FF)) hangul = true;
+                else if (c >= 0x0400 && c <= 0x04FF) cyr = true;
+            }
+            return kana ? "ja" : hangul ? "ko" : cyr ? "ru" : "";
+        }
+
+        // Returns LRC text, or null with a reason in error. hint is the song's title and artist, used to pick the language.
+        public static string Run(string audioPath, string hint, out string source, out string error)
         {
             source = null;
             error = "Tidak ada kunci API Groq atau Deepgram.";
             string result;
             string e;
+            string lang = LanguageFor(hint);
+            string pick = Provider;
 
-            if (Secrets.Has("groq"))
+            if (pick != "deepgram" && Secrets.Has("groq"))
             {
                 long size = new FileInfo(audioPath).Length;
                 if (size > GroqMaxBytes) error = "File lebih dari 25 MB, terlalu besar untuk Groq.";
                 else
                 {
-                    result = CallProvider("groq", k => Groq(audioPath, k), out e);
+                    result = CallProvider("groq", k => Groq(audioPath, k, lang), out e);
                     if (result != null) { source = "Groq"; error = null; return result; }
                     error = "Groq: " + e;
                 }
             }
-            if (Secrets.Has("deepgram"))
+            if (pick != "groq" && Secrets.Has("deepgram"))
             {
-                result = CallProvider("deepgram", k => Deepgram(audioPath, k), out e);
+                result = CallProvider("deepgram", k => Deepgram(audioPath, k, lang), out e);
                 if (result != null) { source = "Deepgram"; error = null; return result; }
                 error = "Deepgram: " + e;
             }
@@ -79,7 +112,7 @@ namespace Notchira
 
         // ---- Groq: multipart upload, segments back --------------------------------------------------------
 
-        static string Groq(string path, string key)
+        static string Groq(string path, string key, string lang)
         {
             Tls();
             string boundary = "----notchira" + Guid.NewGuid().ToString("N");
@@ -89,8 +122,7 @@ namespace Notchira
             field("model", "whisper-large-v3-turbo");
             field("response_format", "verbose_json");
             field("timestamp_granularities[]", "segment");
-            string lang = Settings.Get("lyrics.lang", "");
-            if (lang.Length > 0 && lang.Length <= 8) field("language", lang);
+            if (lang.Length > 0) field("language", lang);
             head.Append("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.m4a\"\r\nContent-Type: audio/mp4\r\n\r\n");
             byte[] headBytes = Encoding.UTF8.GetBytes(head.ToString());
             byte[] tailBytes = Encoding.UTF8.GetBytes("\r\n--" + boundary + "--\r\n");
@@ -139,12 +171,11 @@ namespace Notchira
 
         // ---- Deepgram: raw body, utterances back ------------------------------------------------------------
 
-        static string Deepgram(string path, string key)
+        static string Deepgram(string path, string key, string lang)
         {
             Tls();
-            string lang = Settings.Get("lyrics.lang", "");
             string url = DeepgramUrl + "?model=nova-2&punctuate=true&utterances=true&" +
-                (lang.Length > 0 && lang.Length <= 8 ? "language=" + Uri.EscapeDataString(lang) : "detect_language=true");
+                (lang.Length > 0 ? "language=" + Uri.EscapeDataString(lang) : "detect_language=true");
             var req = (HttpWebRequest)WebRequest.Create(url);
             req.Method = "POST";
             req.Headers["Authorization"] = "Token " + key;

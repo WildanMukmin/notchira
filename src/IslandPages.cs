@@ -43,7 +43,7 @@ namespace Notchira
                     case Page.Library: return 324;
                     case Page.Ai: return 332;
                     case Page.Prompter: return 214;
-                    case Page.Setup: return 374;
+                    case Page.Setup: return 392;
                     default: return ExpH;
                 }
             }
@@ -429,7 +429,9 @@ namespace Notchira
             // playlists, or the playlists to add a song to
             float cy = 96, ch = 22;
             var save = g.Save();
-            g.IntersectClip(newList && addTo == null ? new RectangleF(x - 1, cy - 4, inner + 2, 30) : new RectangleF(x, cy - 1, inner, ch + 2));
+            float playW = PillW(g, "▶ Putar");
+            bool showPlay = !newList && addTo == null && songs.Count > 0;
+            g.IntersectClip(newList && addTo == null ? new RectangleF(x - 1, cy - 4, inner + 2, 30) : new RectangleF(x, cy - 1, showPlay ? inner - playW - 8 : inner, ch + 2));
             if (addTo != null)
             {
                 Txt(g, "Tambahkan ke:", fTiny, x, cy + 4, 90, Wh(a, 210));
@@ -484,6 +486,13 @@ namespace Notchira
                 Pills(g, px, cy, ch, a, "newlist", "+ Daftar", false, (Action)delegate { newList = !newList; pendingFocus = newList; });
             }
             g.Restore(save);
+            if (showPlay)
+                Pill(g, "playlist", new RectangleF(x + inner - playW, cy, playW, ch), "▶ Putar", true, a, delegate
+                {
+                    // the whole list from the top, or from a random song when shuffle is on
+                    addTo = null;
+                    LocalPlayer.I.PlayList(songs, LocalPlayer.I.Shuffle ? new Random().Next(songs.Count) : 0);
+                });
 
             // songs
             float ly = 126;
@@ -1344,7 +1353,10 @@ namespace Notchira
                 Render();
             });
             using (var b = new SolidBrush(Wh(a, 210)))
-                g.DrawString("Ctrl+Alt+H sembunyikan  \u00B7  Ctrl+Alt+K mini  \u00B7  Ctrl+Alt+A asisten  \u00B7  Ctrl+Alt+V suara", fSmall, b, new RectangleF(x, 350, inner, 14), sfMid);
+            {
+                g.DrawString("Ctrl+Alt+H sembunyikan  \u00B7  Ctrl+Alt+K mini", fSmall, b, new RectangleF(x, 350, inner, 14), sfMid);
+                g.DrawString("Ctrl+Alt+A asisten  \u00B7  Ctrl+Alt+V suara", fSmall, b, new RectangleF(x, 366, inner, 14), sfMid);
+            }
         }
 
         // ---- wheel ----------------------------------------------------------------------------------------------

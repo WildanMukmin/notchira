@@ -223,16 +223,16 @@ namespace Notchira
             Environment.SetEnvironmentVariable("NOTCHIRA_DEEPGRAM_URL", prefix + "deepgram");
             string src, err;
             SetKeys("groq", "badkey", "goodkey");
-            string r = Transcribe.Run(audio, out src, out err);
+            string r = Transcribe.Run(audio, "", out src, out err);
             L("groq (bad key first, then good): source=" + src + " err=" + err + " lrc=" + (r ?? "null").Replace("\n", " / "));
 
             SetKeys("groq");
             SetKeys("deepgram", "dgkey");
-            r = Transcribe.Run(audio, out src, out err);
+            r = Transcribe.Run(audio, "", out src, out err);
             L("deepgram only: source=" + src + " err=" + err + " lrc=" + (r ?? "null").Replace("\n", " / "));
 
             SetKeys("deepgram");
-            r = Transcribe.Run(audio, out src, out err);
+            r = Transcribe.Run(audio, "", out src, out err);
             L("no keys: result=" + (r ?? "null") + " err=" + err);
             L("keys file exists=" + File.Exists(Path.Combine(Settings.Dir, "keys.dat")) + " (empty list removes provider)");
             http.Stop();

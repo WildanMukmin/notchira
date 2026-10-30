@@ -16,7 +16,7 @@ namespace Notchira
     // The window is allocated once at the largest size; only the notch shape inside it grows and shrinks.
     sealed partial class Island : Form
     {
-        const float MaxW = 460, MaxH = 360;
+        const float MaxW = 460, MaxH = 400;
         static readonly SizeF IdleSize = new SizeF(96, 24);
         static readonly SizeF MiniSize = new SizeF(56, 11);
         static readonly SizeF CompSize = new SizeF(250, 32);

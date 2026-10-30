@@ -23,6 +23,16 @@ namespace Notchira
         readonly Label baseLbl = new Label();
         readonly Label note = new Label();
         readonly CheckBox transcribe = new CheckBox();
+        readonly Label sttLbl = new Label(), langLbl = new Label();
+        readonly ComboBox sttBox = new ComboBox(), langBox = new ComboBox();
+
+        // Language codes for the speech model; the empty one lets the title and artist decide, then the model.
+        static readonly string[][] Langs =
+        {
+            new[] { "", "Otomatis (dari judul dan artis)" }, new[] { "ja", "Jepang" }, new[] { "ko", "Korea" }, new[] { "zh", "Mandarin" },
+            new[] { "id", "Indonesia" }, new[] { "en", "Inggris" }, new[] { "ru", "Rusia" }, new[] { "es", "Spanyol" }, new[] { "fr", "Prancis" }
+        };
+        static readonly string[][] Stts = { new[] { "auto", "Otomatis (Groq dulu, lalu Deepgram)" }, new[] { "groq", "Groq Whisper saja" }, new[] { "deepgram", "Deepgram saja" } };
         List<KeyInfo> shown = new List<KeyInfo>();
         bool loading;
 
@@ -37,8 +47,8 @@ namespace Notchira
         {
             Text = "Kunci API - Notchira";
             Font = new Font("Segoe UI", 9f);
-            ClientSize = new Size(600, 420);
-            MinimumSize = new Size(560, 400);
+            ClientSize = new Size(600, 490);
+            MinimumSize = new Size(560, 470);
             StartPosition = FormStartPosition.CenterScreen;
 
             var lbl = new Label { Text = "Penyedia", Location = new Point(12, 16), AutoSize = true };
@@ -88,12 +98,27 @@ namespace Notchira
             transcribe.Checked = Settings.Get("transcribe.auto", "1") == "1";
             transcribe.CheckedChanged += delegate { if (!loading) Settings.Set("transcribe.auto", transcribe.Checked ? "1" : "0"); };
 
+            sttLbl.Text = "Layanan";
+            sttLbl.SetBounds(12, 334, 66, 18);
+            foreach (var o in Stts) sttBox.Items.Add(o[1]);
+            sttBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            sttBox.SetBounds(80, 330, 300, 24);
+            sttBox.SelectedIndex = Math.Max(0, Array.FindIndex(Stts, o => o[0] == Transcribe.Provider));
+            sttBox.SelectedIndexChanged += delegate { if (!loading) Settings.Set("transcribe.provider", Stts[sttBox.SelectedIndex][0]); };
+            langLbl.Text = "Bahasa lagu";
+            langLbl.SetBounds(12, 364, 66, 18);
+            foreach (var o in Langs) langBox.Items.Add(o[1]);
+            langBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            langBox.SetBounds(80, 360, 300, 24);
+            langBox.SelectedIndex = Math.Max(0, Array.FindIndex(Langs, o => o[0] == Settings.Get("lyrics.lang", "")));
+            langBox.SelectedIndexChanged += delegate { if (!loading) Settings.Set("lyrics.lang", Langs[langBox.SelectedIndex][0]); };
+
             note.Text = "Kunci disimpan terenkripsi di akun Windows ini dan tidak pernah ditampilkan utuh.";
-            note.SetBounds(12, 384, 576, 32);
+            note.SetBounds(12, 452, 576, 32);
             note.ForeColor = SystemColors.GrayText;
             note.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
 
-            Controls.AddRange(new Control[] { lbl, providers, view, add, remove, activate, reset, auto, modelLbl, model, baseLbl, baseUrl, transcribe, note });
+            Controls.AddRange(new Control[] { lbl, providers, view, add, remove, activate, reset, auto, modelLbl, model, baseLbl, baseUrl, transcribe, sttLbl, sttBox, langLbl, langBox, note });
             providers.SelectedIndex = 0;
             FormClosed += delegate { Memory.Trim(); };
             Drop.Style(this, "Kunci API");
@@ -131,6 +156,11 @@ namespace Notchira
             modelLbl.Visible = model.Visible = baseLbl.Visible = baseUrl.Visible = ai;
             transcribe.Visible = Current == "groq" || Current == "deepgram";
             transcribe.Top = ai ? 358 : 300;
+            bool stt = Current == "groq" || Current == "deepgram";
+            sttLbl.Visible = sttBox.Visible = langLbl.Visible = langBox.Visible = stt;
+            int sy = transcribe.Top + 30;
+            sttLbl.Top = sy + 4; sttBox.Top = sy;
+            langLbl.Top = sy + 34; langBox.Top = sy + 30;
             if (ai)
             {
                 string m = Settings.Get("ai.model." + p.Id, ""), b = Settings.Get("ai.base." + p.Id, "");

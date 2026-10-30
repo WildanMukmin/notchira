@@ -135,7 +135,7 @@ namespace Notchira
             if (lrc == null && keys && (force || Settings.Get("transcribe.auto", "1") == "1") && File.Exists(s.AudioPath))
             {
                 string src, err;
-                string t = Transcribe.Run(s.AudioPath, out src, out err);
+                string t = Transcribe.Run(s.AudioPath, s.Title + " " + s.Artist, out src, out err);
                 if (t != null && t.Length > 0) { lrc = t; source = "transkrip " + src; }
                 else if (err != null && err.StartsWith("HTTP 5")) transient = true;
             }
