@@ -242,7 +242,8 @@ namespace Notchira
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            glassOk = Native.SetWindowDisplayAffinity(Handle, Native.WDA_EXCLUDEFROMCAPTURE);
+            glassOk = Native.ExcludeFromCapture(Handle);
+            Native.HideNewWindowsFromCapture();
             Native.RegisterHotKey(Handle, 1, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x48);
             Native.RegisterHotKey(Handle, 2, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x41);
             Native.RegisterHotKey(Handle, 3, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x4B);
@@ -255,6 +256,7 @@ namespace Notchira
             base.OnShown(e);
             slow.Start();
             InitAutostart();
+            InitStartShortcut();
             trimTimer.Start();
             look.Start();
             ScheduleBlink();
@@ -705,11 +707,18 @@ namespace Notchira
             if (id != hot) { hot = id; Render(); }
         }
 
-        // Scrolling over the island while it is closed changes the system volume; while open it scrolls the page.
+        // Scrolling over the island while it is closed changes the volume; while open it scrolls the page. While Notchira's own
+        // player is playing only its volume changes, so a meeting call keeps its level; otherwise it is the system volume.
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
             if (cur == Mode.Expanded) { ScrollPage(e.Delta); return; }
+            if (LocalPlayer.I.Active)
+            {
+                int v = LocalPlayer.I.AdjustVolume(e.Delta > 0 ? 5 : -5);
+                ShowToast(new Notify.Message { Title = "Volume musik " + v + "%", Body = "Hanya musik Notchira, suara lain tidak ikut" });
+                return;
+            }
             byte vk = e.Delta > 0 ? (byte)0xAF : (byte)0xAE;
             Native.keybd_event(vk, 0, 0, UIntPtr.Zero);
             Native.keybd_event(vk, 0, 2, UIntPtr.Zero);
@@ -1244,6 +1253,19 @@ namespace Notchira
                              Environment.GetFolderPath(Environment.SpecialFolder.Programs);
                 return Path.Combine(dir, "Notchira.lnk");
             }
+        }
+
+        // First run adds the Start Menu entry so Windows search finds the app; after that the setting decides,
+        // and an existing shortcut is rewritten so it follows the exe if it was moved.
+        static void InitStartShortcut()
+        {
+            if (Environment.GetEnvironmentVariable("NOTCHIRA_DIR") != null && Environment.GetEnvironmentVariable("NOTCHIRA_STARTDIR") == null) return;
+            if (Settings.Get("start.init", "") != "1")
+            {
+                SetStartShortcut(true);
+                Settings.Set("start.init", "1");
+            }
+            else if (HasStartShortcut()) SetStartShortcut(true);
         }
 
         static bool HasStartShortcut() { return File.Exists(StartLink); }

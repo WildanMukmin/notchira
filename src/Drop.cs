@@ -76,7 +76,7 @@ namespace Notchira
                 using (var pen = new Pen(Color.FromArgb(60, 255, 255, 255)))
                     e.Graphics.DrawPath(pen, p);
             };
-            f.HandleCreated += delegate { Native.SetWindowDisplayAffinity(f.Handle, Native.WDA_EXCLUDEFROMCAPTURE); };
+            f.HandleCreated += delegate { Native.ExcludeFromCapture(f.Handle); };
             f.VisibleChanged += delegate
             {
                 if (f.Visible) { if (!open.Contains(f)) open.Add(f); }

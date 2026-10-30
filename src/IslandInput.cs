@@ -52,7 +52,7 @@ namespace Notchira
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            Native.SetWindowDisplayAffinity(Handle, Native.WDA_EXCLUDEFROMCAPTURE);
+            Native.ExcludeFromCapture(Handle);
         }
 
         // Grey hint text shown while the box is empty, also while it has focus.

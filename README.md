@@ -29,7 +29,7 @@ Sudah ada:
 
 - **Efek suara** pendek untuk toast, progres selesai, dan klik tombol musik. Bunyinya disintesis di memori (tanpa berkas audio). Letakkan `toast.wav`, `done.wav`, atau `click.wav` di `%APPDATA%\Notchira\sounds\` untuk menggantinya. Pelan secara bawaan; diam saat layar penuh, Focus Assist, island disembunyikan, dan (kecuali klik) saat musik main. Bisa dimatikan di tab Atur.
 - Memori dikembalikan ke Windows saat island diam (paling cepat sekali per 30 detik, tidak saat panel terbuka): sekitar 4–6 MB di Task Manager saat idle, naik lagi sesuai kebutuhan.
-- **Teleprompter** (tab Prompter): naskah terakhir, jumlah kata, kecepatan, ukuran huruf, cermin, **Mulai**, dan **Editor naskah**. Naskah bergulir di tengah atas layar, dekat kamera, tidak ikut terekam, dan tembus klik selama berjalan. Kecepatan dalam kata per menit (60 sampai 400), hitung mundur 3 detik, penanda `[jeda]` berhenti otomatis, sisa waktu baca, mode cermin, naskah tersimpan, impor `.txt` dan `.md`. Saat dijeda, tepi kiri/kanan/bawah bisa diseret untuk mengubah ukuran. Island menyingkir selama teleprompter terbuka.
+- **Teleprompter** (tab Prompter): naskah terakhir, jumlah kata, kecepatan, ukuran huruf, cermin, **Mulai**, dan **Editor naskah**. Naskah bergulir di tengah atas layar, dekat kamera, tidak ikut terekam atau dibagikan lewat sharescreen, dan tembus klik selama berjalan. Setelah selesai, klik kartunya (atau tombol x) untuk menutup. Kecepatan dalam kata per menit (60 sampai 400), hitung mundur 3 detik, penanda `[jeda]` berhenti otomatis, sisa waktu baca, mode cermin, naskah tersimpan, impor `.txt` dan `.md`. Saat dijeda, tepi kiri/kanan/bawah bisa diseret untuk mengubah ukuran. Island menyingkir selama teleprompter terbuka.
 
   | Pintasan | Fungsi |
   |---|---|
@@ -40,6 +40,7 @@ Sudah ada:
   | Ctrl+Alt+P | Buka editor naskah |
   | Ctrl+Alt+X | Hentikan |
 
+- **Volume musik terpisah.** Saat pemutar bawaan Notchira memutar lagu, scroll di atas island yang tertutup hanya mengubah volume musik itu (langkah 5%, tersimpan), bukan volume sistem, jadi suara Meet atau Zoom tidak ikut mengecil. Saat tidak ada lagu Notchira, scroll tetap mengubah volume sistem.
 - **Pustaka musik** (tab Pustaka): tambah lagu dengan **seret berkas** ke island (tab Pustaka terbuka sendiri), tombol **Berkas...** (mp3, m4a, aac, wav, flac, wma, ogg, opus; folder diambil satu tingkat, maksimal 100 berkas), atau tempel tautan YouTube. Berkas disalin ke `%APPDATA%\Notchira\music`; judul, artis, durasi, dan sampul dibaca dari tag berkas, atau dari nama berkas bila berbentuk "Artis - Judul". Seret berkas tidak jalan saat Mode Mini karena island tembus klik. Untuk YouTube: tempel tautan lalu Enter. Tautan **playlist** (`youtube.com/playlist?list=...`) diunduh semuanya, maksimal 50 lagu, dan otomatis menjadi daftar putar bernama sama dengan playlist-nya; lagu yang gagal dilewati, dan **Batal** menghentikannya. Tautan video yang kebetulan membawa `list=` tetap satu lagu. Untuk satu video, Notchira mengunduh **audio saja** (m4a) dengan yt-dlp, lalu memutarnya dengan pemutar bawaan. Ada perpustakaan lokal (`%APPDATA%\Notchira\music`), daftar putar, acak, dan ulang (mati / semua / satu). Klik baris untuk memutar; arahkan kursor ke baris untuk **+ daftar**, **teks**, dan **hapus** (hapus minta klik kedua, "Yakin?"). Scroll di atas daftar untuk menggulir. Lagu yang diputar tampil di island dengan sampul, bilah progres, dan tombol yang sama seperti musik dari aplikasi lain. Pemutar dibuat saat lagu mulai dan dibuang saat antrean habis, jadi tidak memakan memori saat diam.
   - yt-dlp tidak ikut di repo. Saat pertama dipakai, klik **Pasang yt-dlp**: Notchira mengunduhnya dari rilis resmi GitHub (sekitar 25 MB) dan mencocokkan SHA-256-nya dengan daftar yang dirilis bersamanya. **Perbarui yt-dlp** memanggil `yt-dlp -U`, karena YouTube sering berubah.
   - Hanya tautan `youtube.com` dan `youtu.be` yang diterima. Pakai untuk lagu yang kamu berhak mengunduh; unduhan dari YouTube tunduk pada ketentuan layanannya.
@@ -52,7 +53,7 @@ Sudah ada:
   - **Pindah penyedia**: bila semua kunci penyedia terpilih sedang istirahat, penyedia lain yang punya kunci menjawab (bisa dimatikan).
   - **Rapikan dengan AI** di editor teleprompter: menulis ulang naskah agar enak dibacakan dan menyisipkan `[jeda]`; hasilnya bisa diurungkan sekali.
   - Hanya pertanyaan yang kamu kirim yang dikirim ke penyedia terpilih, saat kamu mengirimnya. Tidak ada telemetri.
-- **Asisten suara** (**Ctrl+Alt+V**, atau tombol mikrofon di tab Asisten): ngobrol langsung dengan suara. Tekan sekali untuk mulai, bicara biasa; penyedia mendeteksi sendiri kapan kamu selesai bicara lalu menjawab dengan suara yang diputar sambil datang. Teks ucapanmu dan jawabannya ikut tercatat di percakapan, dan island ringkas menampilkan kalimat terakhir. Selesai dengan **Selesai**, hotkey lagi, atau otomatis setelah 15 detik diam. Mata maskot melebar saat mendengar, menunduk saat berpikir, dan mengangguk saat bicara.
+- **Asisten suara** (**Ctrl+Alt+V**, atau tombol mikrofon di tab Asisten): ngobrol langsung dengan suara. Tekan sekali untuk mulai, bicara biasa; penyedia mendeteksi sendiri kapan kamu selesai bicara lalu menjawab dengan suara yang diputar sambil datang. Teks ucapanmu dan jawabannya ikut tercatat di percakapan, dan island ringkas menampilkan kalimat terakhir. Selesai dengan **Selesai**, hotkey lagi, atau otomatis setelah 15 detik diam. Mata maskot melebar saat mendengar, menunduk saat berpikir, dan mengangguk saat bicara. Suara yang berbicara di Gemini Live bisa dipilih (Kore, Aoede, Leda, Zephyr, Puck, Charon, Fenrir, Orus) di pemilih model, tab **Suara**; berlaku di sesi berikutnya.
   - **Penyedia**, dipilih di pemilih model, bagian **Suara**: **Gemini Live** (`gemini-3.1-flash-live-preview` bawaan, termasuk tier gratis Gemini API, bisa bahasa Indonesia) atau **Deepgram Voice Agent** (nova-3 mendengar, GPT-4o mini berpikir, Aura-2 bicara; memakai kredit Deepgram; mengerti bahasa Indonesia, tetapi suara Aura-2 belum ada yang berbahasa Indonesia sehingga terdengar berlogat Inggris). Model Live lain atau suara Aura lain bisa ditambahkan dan diperiksa dulu ke penyedianya.
   - Tanpa peredam gema, suara dari speaker bisa terdengar lagi oleh mikrofon. Karena itu selama asisten bicara mikrofon mengirim hening. Dengan headset, nyalakan **Sela AI saat bicara** di tab Atur supaya bisa memotong jawaban.
   - Audio mikrofon hanya dikirim selama sesi berjalan, ke penyedia yang dipilih. Kunci memakai daftar kunci yang sama (Gemini atau Deepgram) dengan pergantian otomatis bila kena batas.
@@ -64,6 +65,41 @@ Sudah ada:
   - Untuk memunculkannya dari Mini, diamkan kursor sebentar (sekitar setengah detik) tepat di atas sliver; island terbuka, lalu kembali ke Mini sekitar 1,5 detik setelah kursor pergi. Pintasan **Ctrl+Alt+K** bolak-balik Normal dan Mini; tanda **^** di pojok kiri atas panel mengecilkannya ke Mini.
   - Toast tetap muncul saat Mini (bisa dimatikan lewat **Notifikasi tetap muncul saat Mini**), lalu island kembali ke sliver.
 - Tanpa gerak saat tidak ada yang berubah: bingkai digambar hanya selama animasi (10 ms saat island berubah ukuran, 33 ms saat hanya mata bergerak).
+
+## Pintasan
+
+Pintasan global (**Ctrl+Alt+...**) jalan dari aplikasi mana pun. Kalau satu kombinasi sudah dipakai program lain, Windows menolaknya dan pintasan itu tidak aktif.
+
+**Island**
+
+| Pintasan | Fungsi |
+|---|---|
+| Ctrl+Alt+H | Sembunyikan atau tampilkan island |
+| Ctrl+Alt+K | Bolak-balik Mode Normal dan Mini |
+| Ctrl+Alt+A | Buka tab Asisten, siap diketik |
+| Ctrl+Alt+V | Mulai atau hentikan asisten suara |
+
+**Teleprompter** (aktif selama teleprompter terbuka)
+
+| Pintasan | Fungsi |
+|---|---|
+| Ctrl+Alt+Spasi | Jeda dan lanjut (saat selesai: ulang dari awal) |
+| Ctrl+Alt+R | Ulang dari awal |
+| Ctrl+Alt+Kiri, Kanan | Mundur atau maju 5 detik |
+| Ctrl+Alt+=, Ctrl+Alt+- | Lebih cepat atau lebih lambat (10 wpm) |
+| Ctrl+Alt+P | Buka editor naskah |
+| Ctrl+Alt+X | Hentikan dan tutup teleprompter |
+
+Dengan mouse: saat dijeda atau selesai, klik tombol **x** di kiri atas untuk menutup; saat selesai, klik di mana saja pada kartu.
+
+**Di dalam jendela**
+
+| Pintasan | Fungsi |
+|---|---|
+| Ctrl+Enter | Mulai membaca dari editor naskah |
+| Enter | Kirim isi kolom ketik island (tautan, pertanyaan) |
+| Esc | Kosongkan kolom ketik, lalu batalkan; menutup editor naskah dan Kunci API |
+| Ctrl+A, Ctrl+C, Ctrl+V | Seperti biasa di kolom ketik |
 
 ## Rencana
 
@@ -89,7 +125,7 @@ Tidak ada installer: Notchira satu berkas `Notchira.exe` (sekitar 250 KB). Syara
 
 **Jalan otomatis.** Sejak pertama dijalankan, Notchira ikut menyala setiap Windows hidup, jadi sudah siaga setelah boot. Untuk menutupnya, tab Atur lalu **Keluar** (klik dua kali), atau klik kanan tray lalu **Keluar** (menyala lagi saat login berikutnya). Untuk mematikan jalan otomatis, matikan **Mulai bersama Windows** di tab Atur; pilihan itu dihormati seterusnya. Kalau exe dipindah, jalurnya diperbarui sendiri pada jalan berikutnya.
 
-**Bisa dicari di Windows.** Tab Atur, **Ada di menu Start** membuat pintasan `Notchira` di menu Start pengguna, sehingga muncul saat mencari "Notchira" di pencarian Windows. Matikan lagi untuk menghapusnya.
+**Bisa dicari di Windows.** Pada jalan pertama Notchira otomatis membuat pintasan `Notchira` di menu Start pengguna. Tab Atur, **Ada di menu Start** menyalakan atau mematikannya, sehingga Notchira muncul saat dicari di pencarian Windows. Mematikannya menghapus pintasan itu.
 
 Data ada di `%APPDATA%\Notchira` (tab Atur, **Folder data**). Untuk membuang Notchira: matikan jalan otomatis, hapus pintasan Start bila ada, **Keluar**, lalu hapus exe dan folder data.
 

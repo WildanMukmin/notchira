@@ -930,14 +930,14 @@ namespace Notchira
                 string prov = all[idx].Key, m = all[idx].Value;
                 string id = "v:" + prov + ":" + m;
                 bool hov = hot != null && (hot == id || hot == "vdel:" + m);
-                bool on = Voices.Provider == prov && Voices.Current == m;
+                bool on = prov == "gvoice" ? Voices.GeminiVoice == m : Voices.Provider == prov && Voices.Current == m;
                 if (hov || on) using (var b = new SolidBrush(Wh(a, on ? 26 : 14))) g.FillPath(b, RoundRect(row, 7));
                 AddHit(id, row, delegate
                 {
                     Voices.Select(prov, m);
                     modelPick = false;
                     addModel = false;
-                    aiStatus = "Suara: " + (prov == "gemini" ? "Gemini Live, " : "Deepgram, ") + m;
+                    aiStatus = prov == "gvoice" ? "Suara bicara Gemini: " + m + " (berlaku di sesi berikutnya)" : "Suara: " + (prov == "gemini" ? "Gemini Live, " : "Deepgram, ") + m;
                 });
                 if (on)
                     using (var pen = new Pen(Wh(a, 240), 1.6f))
@@ -955,7 +955,7 @@ namespace Notchira
                 }
                 else
                     using (var b = new SolidBrush(Wh(a, 210)))
-                        g.DrawString(prov == "gemini" ? "Gemini Live" : "Deepgram", fSmall, b, new RectangleF(row.Right - 106, row.Y + 6, 98, 14), sfFar);
+                        g.DrawString(prov == "gemini" ? "Gemini Live" : prov == "gvoice" ? "Suara Gemini" : "Deepgram", fSmall, b, new RectangleF(row.Right - 106, row.Y + 6, 98, 14), sfFar);
             }
         }
 

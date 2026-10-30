@@ -43,6 +43,10 @@ namespace Notchira
             "Kamu asisten kecil di Notchira, aplikasi di tepi layar Windows. Jawab singkat, jelas, dan langsung ke inti, " +
             "dalam bahasa yang dipakai pengguna.";
 
+        // Appended to every system prompt, also a custom one, so the answer to "who made you" stays the same.
+        const string Creator = " Notchira dibuat oleh Wildan Mukmin. Kalau pengguna bertanya siapa yang membuat atau mengembangkan kamu atau aplikasi ini, " +
+            "sebut nama Wildan Mukmin sebagai pembuatnya.";
+
         public static AiProvider Find(string id)
         {
             return Providers.FirstOrDefault(p => p.Id == id) ?? Providers[0];
@@ -129,7 +133,7 @@ namespace Notchira
             }, false, out label);
         }
 
-        public static string System { get { string s = Settings.Get("ai.system", ""); return s.Length > 0 ? s : DefaultSystem; } }
+        public static string System { get { string s = Settings.Get("ai.system", ""); return (s.Length > 0 ? s : DefaultSystem) + Creator; } }
 
         // Providers worth trying, the preferred one first, then the others that have keys.
         static List<AiProvider> Order(string preferred, bool fallback)

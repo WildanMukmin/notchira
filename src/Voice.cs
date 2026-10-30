@@ -250,7 +250,11 @@ namespace Notchira
                 { "setup", new Dictionary<string, object>
                     {
                         { "model", "models/" + model },
-                        { "generationConfig", new Dictionary<string, object> { { "responseModalities", new[] { "AUDIO" } } } },
+                        { "generationConfig", new Dictionary<string, object>
+                            {
+                                { "responseModalities", new[] { "AUDIO" } },
+                                { "speechConfig", new Dictionary<string, object> { { "voiceConfig", new Dictionary<string, object> { { "prebuiltVoiceConfig", new Dictionary<string, object> { { "voiceName", Voices.GeminiVoice } } } } } } }
+                            } },
                         { "systemInstruction", new Dictionary<string, object> { { "parts", new object[] { new Dictionary<string, object> { { "text", Voices.System } } } } } },
                         { "inputAudioTranscription", new Dictionary<string, object>() },
                         { "outputAudioTranscription", new Dictionary<string, object>() }
@@ -402,6 +406,12 @@ namespace Notchira
         public static string Provider { get { return Settings.Get("voice.provider", "gemini") == "deepgram" ? "deepgram" : "gemini"; } }
         public static string GeminiModel { get { return Settings.Get("voice.model.gemini", GeminiSuggested[0]); } }
         public static string DeepgramVoice { get { return Settings.Get("voice.voice.deepgram", DeepgramSuggested[0]); } }
+        // The voice that speaks in a Gemini Live session; it is separate from the model.
+        public static readonly string[] GeminiVoices = { "Kore", "Aoede", "Leda", "Zephyr", "Puck", "Charon", "Fenrir", "Orus" };
+        public static string GeminiVoice
+        {
+            get { string v = Settings.Get("voice.name.gemini", GeminiVoices[0]); return Array.IndexOf(GeminiVoices, v) >= 0 ? v : GeminiVoices[0]; }
+        }
         public static string Current { get { return Provider == "deepgram" ? DeepgramVoice : GeminiModel; } }
 
         public static string System
@@ -413,6 +423,14 @@ namespace Notchira
         {
             switch (m)
             {
+                case "Kore": return "Kore, perempuan, tegas";
+                case "Aoede": return "Aoede, perempuan, ringan";
+                case "Leda": return "Leda, perempuan, muda";
+                case "Zephyr": return "Zephyr, perempuan, cerah";
+                case "Puck": return "Puck, laki-laki, ceria";
+                case "Charon": return "Charon, laki-laki, informatif";
+                case "Fenrir": return "Fenrir, laki-laki, bersemangat";
+                case "Orus": return "Orus, laki-laki, tegas";
                 case "aura-2-thalia-en": return "Thalia, perempuan";
                 case "aura-2-apollo-en": return "Apollo, laki-laki";
                 case "aura-2-amalthea-en": return "Amalthea, perempuan, logat Filipina";
@@ -437,11 +455,13 @@ namespace Notchira
                 foreach (string m in Added(prov)) if (!names.Contains(m)) names.Add(m);
                 foreach (string m in names) list.Add(new KeyValuePair<string, string>(prov, m));
             }
+            foreach (string v in GeminiVoices) list.Add(new KeyValuePair<string, string>("gvoice", v));
             return list;
         }
 
         public static void Select(string provider, string model)
         {
+            if (provider == "gvoice") { Settings.Set("voice.name.gemini", model); return; }
             Settings.Set("voice.provider", provider);
             Settings.Set(provider == "gemini" ? "voice.model.gemini" : "voice.voice.deepgram", model);
         }

@@ -27,6 +27,21 @@ namespace Notchira
         public bool Shuffle { get; private set; }
         public int Repeat { get; private set; } // 0 off, 1 queue, 2 one
 
+        // Volume of this player alone (0 to 1). It does not touch the system volume, so a call in Meet or Zoom
+        // stays as loud as it was while the music gets quieter.
+        public double Volume
+        {
+            get { int v; return int.TryParse(Settings.Get("music.volume", "100"), out v) ? Math.Max(0, Math.Min(100, v)) / 100.0 : 1.0; }
+        }
+
+        public int AdjustVolume(int deltaPercent)
+        {
+            int v = (int)Math.Round(Math.Max(0, Math.Min(1, Volume + deltaPercent / 100.0)) * 100);
+            Settings.Set("music.volume", v.ToString());
+            if (mp != null) mp.Volume = v / 100.0;
+            return v;
+        }
+
         public bool Active { get { return mp != null && Current != null; } }
 
         public Song Current
@@ -85,6 +100,7 @@ namespace Notchira
             {
                 mp = new MediaPlayer();
                 mp.CommandManager.IsEnabled = false;
+                mp.Volume = Volume;
                 mp.MediaEnded += delegate { OnEnded(); };
                 mp.MediaFailed += delegate { OnEnded(); };
                 mp.PlaybackSession.PlaybackStateChanged += delegate { Raise(); };

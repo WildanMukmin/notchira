@@ -31,6 +31,43 @@ namespace Notchira
         [DllImport("user32.dll")] public static extern bool RegisterHotKey(IntPtr hwnd, int id, uint mods, uint vk);
         [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hwnd, int id);
         [DllImport("user32.dll")] public static extern bool SetWindowDisplayAffinity(IntPtr hwnd, uint affinity);
+        // Hides a window from screen capture and screen sharing. Windows 10 refuses the exclusion for a window that is
+        // layered (error 8), so a layered window is made plain for the call and layered again; the setting stays.
+        // (Calling SetLayeredWindowAttributes instead breaks UpdateLayeredWindow and leaves a white box.)
+        public static bool ExcludeFromCapture(IntPtr hwnd)
+        {
+            long ex = GetWindowLongPtr(hwnd, -20).ToInt64();
+            bool layered = (ex & 0x80000) != 0;
+            if (layered) SetWindowLongPtr(hwnd, -20, new IntPtr(ex & ~0x80000L));
+            bool ok = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+            if (layered) SetWindowLongPtr(hwnd, -20, new IntPtr(ex));
+            return ok;
+        }
+        delegate void WinEventProc(IntPtr hook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
+        [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr mod, WinEventProc proc, uint pid, uint tid, uint flags);
+        [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+        [DllImport("kernel32.dll")] static extern uint GetCurrentProcessId();
+        static WinEventProc hookProc; // kept in a field so the delegate is not collected while Windows holds it
+
+        // Every top-level window the app makes (combo box drop-down lists, message boxes, file dialogs, tooltips, the
+        // tray menu, the add-key dialog) is hidden from screen sharing as it appears, so nothing can leak through a
+        // window that was forgotten by hand. A layered window that refuses is left alone, since toggling a foreign
+        // layered window would blank it.
+        public static void HideNewWindowsFromCapture()
+        {
+            if (hookProc != null) return;
+            hookProc = delegate(IntPtr hook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
+            {
+                if (idObject != 0 || hwnd == IntPtr.Zero || GetAncestor(hwnd, 2) != hwnd) return;
+                uint cur;
+                if (GetWindowDisplayAffinity(hwnd, out cur) && cur == WDA_EXCLUDEFROMCAPTURE) return;
+                SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+            };
+            // object create and show, from this process only, delivered on this thread's message loop
+            SetWinEventHook(0x8000, 0x8002, IntPtr.Zero, hookProc, GetCurrentProcessId(), 0, 0);
+        }
+        [DllImport("user32.dll")] static extern bool GetWindowDisplayAffinity(IntPtr hwnd, out uint affinity);
+
         [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd);
         [DllImport("user32.dll")]
         public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);

@@ -225,7 +225,7 @@ namespace Notchira
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            Native.SetWindowDisplayAffinity(Handle, Native.WDA_EXCLUDEFROMCAPTURE);
+            Native.ExcludeFromCapture(Handle);
             uint dpi = Native.GetDpiForWindow(Handle);
             S = dpi > 0 ? dpi / 96f : 1f;
             int fw = (int)Math.Ceiling(MaxW * S), fh = (int)Math.Ceiling(MaxH * S);
@@ -512,15 +512,28 @@ namespace Notchira
         void DrawStatus(Graphics g, float x0)
         {
             float remain = Math.Max(0, total - units) / Math.Max(1, wpm) * 60f;
-            string state = finished ? "Selesai" : (!running && !counting) ? "Jeda" : "";
+            string state = finished ? "Selesai  ·  klik untuk tutup" : (!running && !counting) ? "Jeda" : "";
             string txt = (state.Length > 0 ? state + "  ·  " : "") + FormatTime(remain) + "  ·  " + wpm + " wpm";
             float tw = Math.Min(260, g.MeasureString(txt, fStatus, 1000, StringFormat.GenericTypographic).Width + 18);
             var pill = new RectangleF(x0 + W - tw - 12, 3, tw, 17);
             using (var path = RoundPath(pill, 8))
             using (var b = new SolidBrush(Color.FromArgb(200, 8, 8, 10))) g.FillPath(b, path);
+            if (!running && !counting)
+            {
+                var cb = CloseRect(x0);
+                using (var path = RoundPath(cb, 8))
+                using (var b = new SolidBrush(Color.FromArgb(200, 8, 8, 10))) g.FillPath(b, path);
+                using (var pen = new Pen(Color.FromArgb(200, 255, 255, 255), 1.6f))
+                {
+                    g.DrawLine(pen, cb.X + 5.5f, cb.Y + 5.5f, cb.Right - 5.5f, cb.Bottom - 5.5f);
+                    g.DrawLine(pen, cb.Right - 5.5f, cb.Y + 5.5f, cb.X + 5.5f, cb.Bottom - 5.5f);
+                }
+            }
             using (var b = new SolidBrush(Color.FromArgb(185, 255, 255, 255)))
                 g.DrawString(txt, fStatus, b, new RectangleF(pill.X, 5, pill.Width - 9, 14), sfFar);
         }
+
+        static RectangleF CloseRect(float x0) { return new RectangleF(x0 + 24, 3, 17, 17); }
 
         static GraphicsPath RoundPath(RectangleF r, float rad)
         {
@@ -567,7 +580,14 @@ namespace Notchira
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
-            if (e.Button == MouseButtons.Left && !running && !counting) drag = HitEdge(e.X / S, e.Y / S);
+            if (e.Button != MouseButtons.Left || running || counting) return;
+            float mx = e.X / S, my = e.Y / S;
+            drag = HitEdge(mx, my);
+            if (drag != 0) return;
+            // Paused or finished: the close button, or anywhere on the card once it is finished, ends the session.
+            float x0 = (MaxW - W) / 2f, hx = mirror ? MaxW - mx : mx;
+            bool inside = hx >= x0 && hx <= x0 + W && my >= 0 && my <= H;
+            if (inside && (finished || CloseRect(x0).Contains(hx, my))) Teleprompter.Stop();
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
