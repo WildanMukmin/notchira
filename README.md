@@ -4,7 +4,7 @@ Dynamic island ringan untuk Windows. Duduk di tepi atas layar sebagai notch keci
 
 Native C# (.NET Framework 4.8, tanpa SDK), tanpa browser engine. Dibangun dengan `csc.exe` bawaan Windows.
 
-## Status: v0.15
+## Status: v0.16
 
 Sudah ada:
 - Notch di tepi atas dengan animasi pegas; tiga ukuran: idle, ringkas (sedang memutar musik), dan terbuka.
@@ -125,7 +125,7 @@ Tidak ada installer: Notchira satu berkas `Notchira.exe` (sekitar 250 KB). Syara
 
 **Jalan otomatis.** Sejak pertama dijalankan, Notchira ikut menyala setiap Windows hidup, jadi sudah siaga setelah boot. Untuk menutupnya, tab Atur lalu **Keluar** (klik dua kali), atau klik kanan tray lalu **Keluar** (menyala lagi saat login berikutnya). Untuk mematikan jalan otomatis, matikan **Mulai bersama Windows** di tab Atur; pilihan itu dihormati seterusnya. Kalau exe dipindah, jalurnya diperbarui sendiri pada jalan berikutnya.
 
-**Pembaruan.** Tab Atur menampilkan versi dan tombol **Cek pembaruan**. Notchira juga memeriksa rilis terbaru di GitHub paling sering sekali sehari (matikan dengan `update.auto=0` di `settings.ini`). Bila ada versi baru, tombolnya menjadi **Perbarui ke vX**: exe baru diunduh dari rilis, dicocokkan dengan SHA-256 di catatan rilis, lalu menggantikan exe lama dan Notchira menyala lagi. Berkas yang hashnya tidak cocok dibuang.
+**Pembaruan.** Tab Atur menampilkan versi dan tombol **Cek pembaruan**. Notchira juga memeriksa rilis terbaru di GitHub paling sering sekali sehari (matikan dengan `update.auto=0` di `settings.ini`). Bila ada versi baru, tombolnya menjadi **Perbarui ke vX**: exe baru diunduh dari rilis, dicocokkan dengan SHA-256 di catatan rilis, lalu menggantikan exe lama dan Notchira menyala lagi. Berkas yang hashnya tidak cocok dibuang. Bila pembaruan gagal, alasan sebenarnya tampil di tab Atur dan dicatat lengkap di `update.log` di folder data.
 
 **Bisa dicari di Windows.** Pada jalan pertama Notchira otomatis membuat pintasan `Notchira` di menu Start pengguna. Tab Atur, **Ada di menu Start** menyalakan atau mematikannya, sehingga Notchira muncul saat dicari di pencarian Windows. Mematikannya menghapus pintasan itu.
 

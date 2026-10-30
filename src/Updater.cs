@@ -16,7 +16,7 @@ namespace Notchira
     // moves aside (.old), the new one takes its path, and the app starts again from there.
     static class Updater
     {
-        public const string Current = "0.15";
+        public const string Current = "0.16";
         const string Api = "https://api.github.com/repos/WildanMukmin/notchira/releases/latest";
 
         public static string Latest = "";   // newest version found, without the "v"
@@ -81,9 +81,62 @@ namespace Notchira
                     Settings.Set("update.checked", DateTime.UtcNow.Ticks.ToString());
                     Status = Available ? "Versi " + tag + " tersedia" : "Sudah versi terbaru";
                 }
-                catch (Exception ex) { if (manual) Status = "Gagal memeriksa: " + ex.Message; }
+                catch (Exception ex) { if (manual) Status = "Gagal memeriksa: " + Describe(ex); Log(ex); }
                 finally { Busy = false; if (done != null) done(); }
             });
+        }
+
+        // The download, with the timeouts set and the progress shown. HttpWebRequest follows GitHub's redirect to its file host.
+        static void Download(string url, string to)
+        {
+            var req = (HttpWebRequest)WebRequest.Create(url);
+            req.UserAgent = "Notchira/" + Current;
+            req.Timeout = 30000;
+            req.ReadWriteTimeout = 30000;
+            using (var res = (HttpWebResponse)req.GetResponse())
+            using (var src = res.GetResponseStream())
+            using (var dst = File.Create(to))
+            {
+                var buf = new byte[81920];
+                long total = res.ContentLength, got = 0;
+                int n, last = -1;
+                while ((n = src.Read(buf, 0, buf.Length)) > 0)
+                {
+                    dst.Write(buf, 0, n);
+                    got += n;
+                    int pct = total > 0 ? (int)(got * 100 / total) : 0;
+                    if (pct != last && pct % 5 == 0) { last = pct; Status = "Mengunduh... " + pct + "%"; }
+                }
+            }
+        }
+
+        // The innermost message, which is the real reason; the outer ones are generic wrappers
+        // ("An exception occurred during a WebClient request"). A web error adds its status or HTTP code.
+        static string Describe(Exception ex)
+        {
+            var parts = new List<string>();
+            for (Exception e = ex; e != null; e = e.InnerException)
+            {
+                var we = e as WebException;
+                var hr = we == null ? null : we.Response as HttpWebResponse;
+                string m = e.Message;
+                if (hr != null) m += " (HTTP " + (int)hr.StatusCode + ")";
+                else if (we != null) m += " [" + we.Status + "]";
+                if (!parts.Contains(m)) parts.Add(m);
+            }
+            return string.Join(" > ", parts.ToArray());
+        }
+
+        // The whole exception goes to update.log in the data folder, so a failure on another computer can be read.
+        static void Log(Exception ex)
+        {
+            try
+            {
+                Directory.CreateDirectory(Settings.Dir);
+                File.AppendAllText(Path.Combine(Settings.Dir, "update.log"),
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " v" + Current + " " + Environment.OSVersion + Environment.NewLine + ex + Environment.NewLine + Environment.NewLine);
+            }
+            catch { }
         }
 
         // Downloads, verifies, swaps, and restarts. done(false, message) on any failure; on success the app exits.
@@ -102,7 +155,7 @@ namespace Notchira
                 try
                 {
                     ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;
-                    using (var wc = new WebClient()) { wc.Headers["User-Agent"] = "Notchira/" + Current; wc.DownloadFile(assetUrl, tmp); }
+                    Download(assetUrl, tmp);
                     string got;
                     using (var h = SHA256.Create())
                     using (var fs = File.OpenRead(tmp))
@@ -127,7 +180,8 @@ namespace Notchira
                     try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
                     // if the swap broke halfway, put the working exe back
                     try { if (swapped && !File.Exists(exe)) File.Move(old, exe); } catch { }
-                    Status = "Gagal memperbarui: " + ex.Message;
+                    Status = "Gagal memperbarui: " + Describe(ex);
+                    Log(ex);
                 }
                 finally { Busy = false; if (done != null) done(); }
             });

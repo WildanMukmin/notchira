@@ -1343,7 +1343,15 @@ namespace Notchira
             });
             // version and update
             string vtxt = Updater.Status.Length > 0 ? Updater.Status : "Notchira v" + Updater.Current;
-            Txt(g, vtxt.StartsWith("Notchira") ? vtxt : "v" + Updater.Current + "  ·  " + vtxt, fComp, x, 322, inner - 130, Wh(a, 200));
+            if (vtxt.StartsWith("Gagal"))
+            {
+                // a failure is longer than a status; it wraps over two small lines instead of being cut off
+                using (var b = new SolidBrush(Wh(a, 225)))
+                using (var sf = new StringFormat(StringFormat.GenericTypographic) { Trimming = StringTrimming.EllipsisWord })
+                    g.DrawString(vtxt, fTiny, b, new RectangleF(x, 318, inner - 130, 30), sf);
+            }
+            else
+                Txt(g, vtxt.StartsWith("Notchira") ? vtxt : "v" + Updater.Current + "  ·  " + vtxt, fComp, x, 322, inner - 130, Wh(a, 200));
             string ulabel = Updater.Busy ? "Tunggu..." : Updater.Available ? "Perbarui ke v" + Updater.Latest : "Cek pembaruan";
             float uw = PillW(g, ulabel);
             Pill(g, "upd", new RectangleF(x + inner - uw, 318, uw, 24), ulabel, Updater.Available, a, Updater.Busy ? (Action)null : delegate
