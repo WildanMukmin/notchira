@@ -87,6 +87,7 @@ namespace Notchira
         Mode cur = Mode.Idle;
         bool hover, pausedRecent, userHidden, fsHidden, glassOk;
         string material;
+        int glassTint = 58;   // alpha of the dark layer over the glass, raised on bright backgrounds
 
         NotifyIcon tray;
         ContextMenuStrip menu;
@@ -712,13 +713,21 @@ namespace Notchira
 
         void CaptureBackdrop()
         {
-            if (!glassOk || material != "liquid" || !IsHandleCreated || frame == null || !Visible) return;
+            // dev hook: NOTCHIRA_BACKDROP=<png> stands in for the screen behind the island (for dumped frames)
+            string fake = Environment.GetEnvironmentVariable("NOTCHIRA_BACKDROP");
+            bool useFake = !string.IsNullOrEmpty(fake) && File.Exists(fake);
+            if (material != "liquid" || !IsHandleCreated || frame == null) return;
+            if (!useFake && (!glassOk || !Visible)) return;
             try
             {
                 int W = frame.Width, H = frame.Height;
                 using (var raw = new Bitmap(W, H, PixelFormat.Format32bppRgb))
                 {
-                    using (var g = Graphics.FromImage(raw)) g.CopyFromScreen(Left, Top, 0, 0, new Size(W, H));
+                    using (var g = Graphics.FromImage(raw))
+                    {
+                        if (useFake) using (var img = Image.FromFile(fake)) g.DrawImage(img, 0, 0, W, H);
+                        else g.CopyFromScreen(Left, Top, 0, 0, new Size(W, H));
+                    }
                     int w2 = Math.Max(8, W / 10), h2 = Math.Max(4, H / 10);
                     using (var small = new Bitmap(w2, h2, PixelFormat.Format32bppRgb))
                     {
@@ -727,6 +736,18 @@ namespace Notchira
                             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
                             g.DrawImage(raw, new Rectangle(0, 0, w2, h2));
                         }
+                        // the brighter the screen behind, the darker the tint, so white text stays readable
+                        double sum = 0;
+                        int n = 0;
+                        for (int py = 0; py < h2; py++)
+                            for (int px = 0; px < w2; px++)
+                            {
+                                Color c = small.GetPixel(px, py);
+                                sum += (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255.0;
+                                n++;
+                            }
+                        double lum = n > 0 ? sum / n : 0;
+                        glassTint = 58 + (int)(Math.Max(0, Math.Min(1, (lum - 0.35) / 0.55)) * 112);
                         if (backdrop == null || backdrop.Width != W || backdrop.Height != H)
                         {
                             if (backdrop != null) backdrop.Dispose();
@@ -736,6 +757,17 @@ namespace Notchira
                         using (var ia = new ImageAttributes())
                         {
                             ia.SetWrapMode(WrapMode.TileFlipXY);
+                            // frosted look: colours pushed up and a little lighter than the screen behind
+                            const float sat = 1.5f, lift = 0.06f;
+                            float r = 0.3086f * (1 - sat), gC = 0.6094f * (1 - sat), bC = 0.0820f * (1 - sat);
+                            ia.SetColorMatrix(new ColorMatrix(new[]
+                            {
+                                new[] { r + sat, r, r, 0f, 0f },
+                                new[] { gC, gC + sat, gC, 0f, 0f },
+                                new[] { bC, bC, bC + sat, 0f, 0f },
+                                new[] { 0f, 0f, 0f, 1f, 0f },
+                                new[] { lift, lift, lift, 0f, 1f }
+                            }));
                             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
                             g.DrawImage(small, new Rectangle(0, 0, W, H), 0, 0, w2, h2, GraphicsUnit.Pixel, ia);
                         }
@@ -814,15 +846,16 @@ namespace Notchira
                     tb.ScaleTransform(1f / S, 1f / S);
                     g.FillPath(tb, p);
                 }
-                using (var b = new SolidBrush(Color.FromArgb(128, 10, 12, 18))) g.FillPath(b, p);
-                using (var sheen = new LinearGradientBrush(box, Color.FromArgb(52, 255, 255, 255), Color.FromArgb(0, 255, 255, 255), 90f))
+                using (var b = new SolidBrush(Color.FromArgb(glassTint, 14, 18, 30))) g.FillPath(b, p);
+                using (var veil = new SolidBrush(Color.FromArgb(22, 255, 255, 255))) g.FillPath(veil, p);
+                using (var sheen = new LinearGradientBrush(box, Color.FromArgb(78, 255, 255, 255), Color.FromArgb(6, 255, 255, 255), 90f))
                     g.FillPath(sheen, p);
             }
             else
             {
                 using (var b = new SolidBrush(Color.FromArgb(255, 6, 6, 8))) g.FillPath(b, p);
             }
-            int a0 = liquid ? 120 : 46, a1 = liquid ? 26 : 12;
+            int a0 = liquid ? 170 : 46, a1 = liquid ? 48 : 12;
             using (var rim = new LinearGradientBrush(box, Color.FromArgb(a0, 255, 255, 255), Color.FromArgb(a1, 255, 255, 255), 90f))
             using (var pen = new Pen(rim, 1f))
                 g.DrawPath(pen, p);
