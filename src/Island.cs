@@ -106,7 +106,7 @@ namespace Notchira
             Color c = AccA;
             return Color.FromArgb((int)(240 * Clamp01(a)), c.R + (255 - c.R) * 55 / 100, c.G + (255 - c.G) * 55 / 100, c.B + (255 - c.B) * 55 / 100);
         }
-        int glassTint = 140;   // alpha of the dark layer over the glass, raised on bright backgrounds
+        int glassTint = 40;    // alpha of the dark layer over the glass, as thin as the text contrast allows (see TintFor)
 
         NotifyIcon tray;
         ContextMenuStrip menu;
@@ -798,7 +798,7 @@ namespace Notchira
                             }
                         lums.Sort();
                         double lum = lums.Count > 0 ? lums[(int)(lums.Count * 0.9)] : 0;
-                        glassTint = 140 + (int)(Math.Max(0, Math.Min(1, (lum - 0.25) / 0.35)) * 80);
+                        glassTint = TintFor(lum);
                         if (backdrop == null || backdrop.Width != W || backdrop.Height != H)
                         {
                             if (backdrop != null) backdrop.Dispose();
@@ -887,6 +887,35 @@ namespace Notchira
             SyncInput();
         }
 
+        // The glass is as clear as the text allows. The dark layer's alpha is the smallest one for which the secondary text
+        // (white at alpha 210) keeps a contrast of 4.6:1 or more (WCAG AA is 4.5) on a backdrop of the measured brightness,
+        // with the white veil and an average share of the top sheen counted in. A dark desktop therefore gets a thin tint,
+        // a bright one a thicker one; the primary text always has more than 5.5:1.
+        const int GlassVeil = 16, GlassSheen = 44, GlassTintMin = 40, GlassTintMax = 235;
+
+        static double RelLum(double r, double g, double b)
+        {
+            Func<double, double> lin = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4); };
+            return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+        }
+
+        static int TintFor(double lum)
+        {
+            double bg = Math.Max(0, Math.Min(1, lum)) * 255;
+            for (int a = GlassTintMin; a < GlassTintMax; a++)
+            {
+                double k = a / 255.0;
+                double r = bg * (1 - k) + 14 * k, gr = bg * (1 - k) + 18 * k, b = bg * (1 - k) + 30 * k;
+                double veil = GlassVeil / 255.0, sheen = 0.7 * GlassSheen / 255.0;   // sheen at 70%: the text sits below the very top
+                r += (255 - r) * veil; gr += (255 - gr) * veil; b += (255 - b) * veil;
+                r += (255 - r) * sheen; gr += (255 - gr) * sheen; b += (255 - b) * sheen;
+                double t = 210 / 255.0;
+                double yg = RelLum(r, gr, b), yt = RelLum(r + (255 - r) * t, gr + (255 - gr) * t, b + (255 - b) * t);
+                if ((yt + 0.05) / (yg + 0.05) >= 4.6) return a;
+            }
+            return GlassTintMax;
+        }
+
         void DrawMaterial(Graphics g, GraphicsPath p, float x0, float w, float h)
         {
             var box = new RectangleF(x0, -2, w, h + 2);
@@ -899,12 +928,12 @@ namespace Notchira
                     g.FillPath(tb, p);
                 }
                 using (var b = new SolidBrush(Color.FromArgb(glassTint, 14, 18, 30))) g.FillPath(b, p);
-                using (var veil = new SolidBrush(Color.FromArgb(26, 255, 255, 255))) g.FillPath(veil, p);
+                using (var veil = new SolidBrush(Color.FromArgb(GlassVeil, 255, 255, 255))) g.FillPath(veil, p);
                 // a light band along the top edge only: a sheen over the whole height washes the text areas out
                 var band = new RectangleF(x0, -2, w, Math.Min(h + 2, 120f));
                 var kept = g.Save();
                 g.SetClip(p);
-                using (var sheen = new LinearGradientBrush(band, Color.FromArgb(64, 255, 255, 255), Color.FromArgb(0, 255, 255, 255), 90f))
+                using (var sheen = new LinearGradientBrush(band, Color.FromArgb(GlassSheen, 255, 255, 255), Color.FromArgb(0, 255, 255, 255), 90f))
                     g.FillRectangle(sheen, band);
                 g.Restore(kept);
             }

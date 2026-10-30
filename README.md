@@ -4,14 +4,14 @@ Dynamic island ringan untuk Windows. Duduk di tepi atas layar sebagai notch keci
 
 Native C# (.NET Framework 4.8, tanpa SDK), tanpa browser engine. Dibangun dengan `csc.exe` bawaan Windows.
 
-## Status: v0.16
+## Status: v0.17
 
 Sudah ada:
 - Notch di tepi atas dengan animasi pegas; tiga ukuran: idle, ringkas (sedang memutar musik), dan terbuka.
 - **Semua dari island.** Saat terbuka, baris tab di atas panel berisi **Musik**, **Pustaka**, **Asisten**, **Prompter**, dan **Atur**. Island memanjang ke bawah sesuai isi tab. Tempel tautan, tanya asisten, dan semua pengaturan dilakukan di sini; kolom ketiknya kotak teks sungguhan (tempel, IME, Ctrl+A jalan seperti biasa). Island tetap terbuka selama kamu mengetik, **Esc** mengosongkan kolom lalu menutup island. Klik kanan island membuka tab Atur. Tab terakhir diingat selama 20 detik setelah island menutup, setelah itu kembali ke Musik.
 - Editor naskah teleprompter dan pengelola Kunci API butuh ruang lebih, jadi keduanya **turun dari tepi atas** dengan bentuk dan warna island (tutup dengan **✕** atau **Esc**). Island menyingkir selama panel itu terbuka.
 - Now Playing dari kontrol media Windows (Spotify, browser, VLC, dan lainnya): judul, artis, sampul, bilah progres yang bisa diklik, prev / play-jeda / next.
-- Material **Liquid Glass** (latar blur dari layar di belakang island, kilau tipis, bingkai halus; lapisan gelapnya menebal sendiri di latar terang) atau hitam pekat, dipilih di tab Atur. **Warna aksen** (Netral bawaan, Electric Blue, Violet, Purple, Emerald, Orange) menandai tab dan tombol aktif serta menyemuatkan bingkai.
+- Material **Liquid Glass** (latar blur dari layar di belakang island, kilau tipis, bingkai halus; lapisan gelapnya setipis yang masih menjaga kontras teks 4,6:1 atau lebih, jadi jernih di latar gelap dan menebal sendiri di latar terang) atau hitam pekat, dipilih di tab Atur. **Warna aksen** (Netral bawaan, Electric Blue, Violet, Purple, Emerald, Orange) menandai tab dan tombol aktif serta menyemuatkan bingkai.
 - Tray icon hanya cadangan (Tampilkan/Sembunyikan island dan Keluar), mulai bersama Windows, sembunyikan dengan **Ctrl+Alt+H**, otomatis menyingkir saat aplikasi layar penuh.
 - Lirik tersinkron dari [LRCLIB](https://lrclib.net): baris aktif tampil di mode ringkas dan di panel. Hasil (termasuk "tidak ada") disimpan di `%APPDATA%\Notchira\lyrics`. Yang dikirim hanya judul, artis, album, dan durasi; bisa dimatikan di tab Atur.
 - Toast dan bilah progres dari skrip (lihat di bawah).
