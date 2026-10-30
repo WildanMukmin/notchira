@@ -1059,6 +1059,7 @@ namespace Notchira
                 DrawSkip(g, b, cx - 46, BtnY, -1);
                 DrawSkip(g, b, cx + 46, BtnY, 1);
             }
+            if (LocalPlayer.I.Active) DrawVolume(g, tx + 226, BtnY, tx + TextW, a);
             AddHit("prev", new RectangleF(cx - 64, BtnY - 18, 36, 36), delegate { Ping("click"); SkipPrev(); });
             AddHit("next", new RectangleF(cx + 28, BtnY - 18, 36, 36), delegate { Ping("click"); SkipNext(); });
             AddHit("play", new RectangleF(cx - 20, BtnY - 20, 40, 40), delegate { Ping("click"); Toggle(); });
@@ -1075,6 +1076,34 @@ namespace Notchira
                     g.FillPolygon(b, new[] { new PointF(cx - 4, BtnY - 8), new PointF(cx - 4, BtnY + 8), new PointF(cx + 8, BtnY) });
                 }
             }
+        }
+
+        // Volume of Notchira's own player only; the system volume and other apps (a Meet or Zoom call) stay as they are.
+        void DrawVolume(Graphics g, float x, float y, float right, float a)
+        {
+            float vol = (float)LocalPlayer.I.Volume, bx = x + 18, bw = right - bx;
+            bool hov = hot == "vol";
+            using (var b = new SolidBrush(Wh(a, 235)))
+            {
+                g.FillPolygon(b, new[] { new PointF(x, y - 2), new PointF(x + 3, y - 2), new PointF(x + 8, y - 6), new PointF(x + 8, y + 6), new PointF(x + 3, y + 2), new PointF(x, y + 2) });
+            }
+            using (var pen = new Pen(Wh(a, vol <= 0 ? 90 : 235), 1.4f))
+            {
+                if (vol > 0) g.DrawArc(pen, x + 6, y - 4, 7, 8, -50, 100);
+                if (vol > 0.5f) g.DrawArc(pen, x + 6, y - 7, 11, 14, -50, 100);
+            }
+            using (var b = new SolidBrush(Wh(a, hov ? 80 : 55)))
+                g.FillPath(b, RoundRect(new RectangleF(bx, y - 2, bw, 4), 2));
+            if (vol > 0.01f)
+                using (var b = new SolidBrush(Wh(a, 235)))
+                    g.FillPath(b, RoundRect(new RectangleF(bx, y - 2, Math.Max(4, bw * vol), 4), 2));
+            using (var b = new SolidBrush(Wh(a, 250)))
+                g.FillEllipse(b, bx + bw * vol - 4, y - 4, 8, 8);
+            AddHitAt("vol", new RectangleF(x - 2, y - 14, right - x + 4, 28), p =>
+            {
+                int target = (int)Math.Round(Clamp01((p.X - bx) / bw) * 100);
+                LocalPlayer.I.AdjustVolume(target - (int)Math.Round(LocalPlayer.I.Volume * 100));
+            });
         }
 
         static void DrawSkip(Graphics g, Brush b, float cx, float cy, int dir)
