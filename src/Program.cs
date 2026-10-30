@@ -17,6 +17,8 @@ namespace Notchira
             using (var mutex = new Mutex(true, name, out created))
             {
                 if (!created) return 0;
+                // built without a target framework, so .NET would otherwise start without TLS 1.2 (Deepgram requires it)
+                System.Net.ServicePointManager.SecurityProtocol |= (System.Net.SecurityProtocolType)3072;
                 Settings.Load();
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);

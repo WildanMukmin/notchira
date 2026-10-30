@@ -107,6 +107,7 @@ namespace Notchira
                 if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); }
             };
             VisibleChanged += delegate { if (Visible) LoadSettings(); };
+            Drop.Style(this, "Editor naskah");
         }
 
         static Button Btn(string text, int x, int y, int w)
@@ -264,14 +265,14 @@ namespace Notchira
                 RefreshList();
                 saved.SelectedItem = name;
             }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "Notchira"); }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "Notchira"); }
         }
 
         void Delete()
         {
             string n = saved.SelectedItem as string;
             if (n == null) return;
-            if (MessageBox.Show("Hapus naskah \"" + n + "\"?", "Notchira", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+            if (MessageBox.Show(this, "Hapus naskah \"" + n + "\"?", "Notchira", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
             try { File.Delete(PathFor(n)); } catch { }
             saved.SelectedIndex = -1;
             RefreshList();
@@ -289,7 +290,7 @@ namespace Notchira
                     box.Text = s.Replace("\r\n", "\n").Replace("\n", Environment.NewLine);
                     saved.SelectedIndex = -1;
                 }
-                catch (Exception ex) { MessageBox.Show(ex.Message, "Notchira"); }
+                catch (Exception ex) { MessageBox.Show(this, ex.Message, "Notchira"); }
             }
         }
     }

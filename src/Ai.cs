@@ -12,6 +12,7 @@ namespace Notchira
     sealed class AiProvider
     {
         public string Id, Name, Kind, DefaultBase, DefaultModel;
+        public string[] Suggested;
     }
 
     sealed class AiMessage
@@ -32,8 +33,10 @@ namespace Notchira
     {
         public static readonly AiProvider[] Providers =
         {
-            new AiProvider { Id = "groq", Name = "Groq", Kind = "openai", DefaultBase = "https://api.groq.com/openai/v1", DefaultModel = "llama-3.3-70b-versatile" },
-            new AiProvider { Id = "gemini", Name = "Gemini", Kind = "gemini", DefaultBase = "https://generativelanguage.googleapis.com/v1beta", DefaultModel = "gemini-2.5-flash" }
+            new AiProvider { Id = "groq", Name = "Groq", Kind = "openai", DefaultBase = "https://api.groq.com/openai/v1", DefaultModel = "openai/gpt-oss-120b",
+                Suggested = new[] { "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b" } },
+            new AiProvider { Id = "gemini", Name = "Gemini", Kind = "gemini", DefaultBase = "https://generativelanguage.googleapis.com/v1beta", DefaultModel = "gemini-3.5-flash",
+                Suggested = new[] { "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro-preview" } }
         };
 
         public const string DefaultSystem =
@@ -57,6 +60,73 @@ namespace Notchira
         {
             string s = Settings.Get("ai.model." + p.Id, "");
             return s.Length > 0 ? s : p.DefaultModel;
+        }
+
+        public static void SetModel(AiProvider p, string model)
+        {
+            Settings.Set("ai.model." + p.Id, model == p.DefaultModel ? "" : model);
+        }
+
+        // Models the user added on top of the suggested ones, kept per provider in settings.ini.
+        public static List<string> Added(AiProvider p)
+        {
+            return Settings.Get("ai.models." + p.Id, "").Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries).ToList();
+        }
+
+        // Suggested first, then the user's own, then the selected one if it came from somewhere else (the key panel).
+        public static List<string> Models(AiProvider p)
+        {
+            var list = new List<string>(p.Suggested);
+            foreach (string m in Added(p)) if (!list.Contains(m)) list.Add(m);
+            string cur = Model(p);
+            if (!list.Contains(cur)) list.Add(cur);
+            return list;
+        }
+
+        public static void AddModel(AiProvider p, string model)
+        {
+            var list = Added(p);
+            if (!list.Contains(model) && !p.Suggested.Contains(model)) list.Add(model);
+            Settings.Set("ai.models." + p.Id, string.Join("|", list.ToArray()));
+        }
+
+        public static void RemoveModel(AiProvider p, string model)
+        {
+            var list = Added(p);
+            list.Remove(model);
+            Settings.Set("ai.models." + p.Id, string.Join("|", list.ToArray()));
+            if (Model(p) == model) SetModel(p, p.DefaultModel);
+        }
+
+        // Chat models the provider offers to the active key. Used to check a model name before it is added.
+        public static List<string> ListModels(AiProvider p)
+        {
+            string label;
+            return Secrets.Call(p.Id, key =>
+            {
+                var result = new List<string>();
+                if (p.Kind == "gemini")
+                {
+                    var json = GetJson(Base(p) + "/models?pageSize=1000", new Dictionary<string, string> { { "x-goog-api-key", key } });
+                    var models = Child(json, "models") as object[];
+                    if (models != null)
+                        foreach (object m in models)
+                        {
+                            var methods = Child(m, "supportedGenerationMethods") as object[];
+                            string name = Child(m, "name") as string;
+                            if (name != null && methods != null && methods.Contains("generateContent"))
+                                result.Add(name.StartsWith("models/") ? name.Substring(7) : name);
+                        }
+                }
+                else
+                {
+                    var json = GetJson(Base(p) + "/models", new Dictionary<string, string> { { "Authorization", "Bearer " + key } });
+                    var data = Child(json, "data") as object[];
+                    if (data != null)
+                        foreach (object m in data) { string id = Child(m, "id") as string; if (id != null) result.Add(id); }
+                }
+                return result;
+            }, false, out label);
         }
 
         public static string System { get { string s = Settings.Get("ai.system", ""); return s.Length > 0 ? s : DefaultSystem; } }
@@ -169,11 +239,34 @@ namespace Notchira
             throw new Exception("Jawaban kosong dari " + p.Name + " (mungkin diblokir).");
         }
 
-        static object Child(object node, string name)
+        public static object Child(object node, string name)
         {
             var d = node as Dictionary<string, object>;
             object v;
             return d != null && d.TryGetValue(name, out v) ? v : null;
+        }
+
+        public static object GetJson(string url, Dictionary<string, string> headers)
+        {
+            ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;
+            var req = (HttpWebRequest)WebRequest.Create(url);
+            req.UserAgent = "Notchira/0.7";
+            req.Timeout = 20000;
+            foreach (var h in headers) req.Headers[h.Key] = h.Value;
+            try
+            {
+                using (var resp = (HttpWebResponse)req.GetResponse())
+                using (var rd = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+                    return new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.DeserializeObject(rd.ReadToEnd());
+            }
+            catch (WebException ex)
+            {
+                var r = ex.Response as HttpWebResponse;
+                if (r == null) throw;
+                string text = "";
+                try { using (var rd = new StreamReader(r.GetResponseStream(), Encoding.UTF8)) text = rd.ReadToEnd(); } catch { }
+                throw new ApiException((int)r.StatusCode, text);
+            }
         }
 
         static object Post(string url, Dictionary<string, string> headers, Dictionary<string, object> body)

@@ -25,8 +25,7 @@ namespace Notchira
         public static void ShowEditor()
         {
             if (editor == null || editor.IsDisposed) editor = new PrompterEditor();
-            editor.Show();
-            editor.Activate();
+            Drop.Show(editor);
         }
 
         public static void Start(string script)

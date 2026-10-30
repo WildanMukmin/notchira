@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -13,9 +14,9 @@ namespace Notchira
 {
     // Layered, click-through-where-transparent window pinned to the top edge of the primary screen.
     // The window is allocated once at the largest size; only the notch shape inside it grows and shrinks.
-    sealed class Island : Form
+    sealed partial class Island : Form
     {
-        const float MaxW = 460, MaxH = 200;
+        const float MaxW = 460, MaxH = 340;
         static readonly SizeF IdleSize = new SizeF(96, 24);
         static readonly SizeF MiniSize = new SizeF(56, 11);
         static readonly SizeF CompSize = new SizeF(250, 32);
@@ -24,9 +25,9 @@ namespace Notchira
 
         // With synced lyrics the open panel grows to fit a three-line block between the artist and the progress bar.
         float LyrOff { get { return lyrics != null ? 44f : 0f; } }
-        float ExpH { get { return ExpSize.Height + LyrOff; } }
-        float BarY { get { return 78 + LyrOff; } }
-        float BtnY { get { return 118 + LyrOff; } }
+        float ExpH { get { return ExpSize.Height + LyrOff + TabH; } }
+        float BarY { get { return 78 + LyrOff + TabH; } }
+        float BtnY { get { return 118 + LyrOff + TabH; } }
 
         static readonly SizeF ToastSize = new SizeF(300, 56);
 
@@ -89,7 +90,7 @@ namespace Notchira
 
         NotifyIcon tray;
         ContextMenuStrip menu;
-        ToolStripMenuItem miHide, miLiquid, miSolid, miAuto, miLyrics, miSound, miNormal, miMini, miAutoMini, miMiniNotif, miStart;
+        ToolStripMenuItem miHide;
 
         static readonly Font fTitle = new Font("Segoe UI", 15f, FontStyle.Bold, GraphicsUnit.Pixel);
         static readonly Font fLyric = new Font("Segoe UI Semibold", 14.5f, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -124,7 +125,15 @@ namespace Notchira
             BuildTray();
             anim.Tick += OnAnim;
             tick.Tick += delegate { tickCount++; if (tickCount % 2 == 0) CaptureBackdrop(); Render(); };
-            leave.Tick += delegate { leave.Stop(); hover = false; HoldThenMini(); Retarget(); };
+            leave.Tick += delegate
+            {
+                leave.Stop();
+                if (Typing || InsideIsland(Cursor.Position)) return;
+                if (Environment.TickCount < openGrace) { leave.Start(); return; }
+                hover = false;
+                HoldThenMini();
+                Retarget();
+            };
             miniTimer.Tick += delegate { miniTimer.Stop(); Retarget(); };
             slow.Tick += delegate { OnSlow(); };
             pause.Tick += delegate { pause.Stop(); pausedRecent = false; Retarget(); };
@@ -155,6 +164,7 @@ namespace Notchira
                 if (IsDisposed || !IsHandleCreated) return;
                 BeginInvoke((Action)delegate
                 {
+                    aiStatus = "Kunci " + prov + " \"" + from + "\" kena batas" + (to != null ? ", pindah ke \"" + to + "\"." : ".");
                     ShowToast(new Notify.Message { Title = "Kunci " + prov + " kena batas", Body = to != null ? "Pindah ke \"" + to + "\"" : "Tidak ada kunci cadangan" });
                 });
             };
@@ -188,6 +198,7 @@ namespace Notchira
             Native.RegisterHotKey(Handle, 1, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x48);
             Native.RegisterHotKey(Handle, 2, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x41);
             Native.RegisterHotKey(Handle, 3, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x4B);
+            Native.RegisterHotKey(Handle, 4, Native.MOD_CONTROL | Native.MOD_ALT | Native.MOD_NOREPEAT, 0x56);
             Setup();
         }
 
@@ -213,6 +224,8 @@ namespace Notchira
             Native.UnregisterHotKey(Handle, 1);
             Native.UnregisterHotKey(Handle, 2);
             Native.UnregisterHotKey(Handle, 3);
+            Native.UnregisterHotKey(Handle, 4);
+            StopVoice();
             tray.Visible = false;
             tray.Dispose();
             base.OnFormClosed(e);
@@ -223,7 +236,10 @@ namespace Notchira
             if (m.Msg == Native.WM_HOTKEY)
             {
                 int id = (int)m.WParam;
-                if (id == 2) AssistantWindow.ShowWindow(); else if (id == 3) ToggleMini(); else ToggleHidden();
+                if (id == 2) OpenPage(Page.Ai, true);
+                else if (id == 3) ToggleMini();
+                else if (id == 4) { if (voice == null) OpenPage(Page.Ai, false); ToggleVoice(); }
+                else ToggleHidden();
                 return;
             }
             base.WndProc(ref m);
@@ -249,6 +265,7 @@ namespace Notchira
         {
             if (hover) return Mode.Expanded;
             if (toast != null) return Mode.Toast;
+            if (voice != null) return Mode.Compact;
             if (miniOn && Environment.TickCount > holdUntil) return Mode.Mini;
             if (track != null && (track.Playing || pausedRecent)) return Mode.Compact;
             return Mode.Idle;
@@ -259,13 +276,16 @@ namespace Notchira
             var m = Target();
             if (m != cur)
             {
+                long now = Environment.TickCount;
+                if (cur == Mode.Expanded) closedAt = now;
+                else if (m == Mode.Expanded && now - closedAt > 20000) { page = Page.Music; OnPageShown(); }
                 cur = m;
                 if (IsHandleCreated) Native.SetClickThrough(Handle, m == Mode.Mini);
                 CaptureBackdrop();
                 tick.Enabled = m == Mode.Expanded;
                 tickCount = 0;
             }
-            SizeF z = m == Mode.Mini ? MiniSize : m == Mode.Idle ? IdleSize : m == Mode.Compact ? CompSize : m == Mode.Toast ? ToastSize : new SizeF(ExpSize.Width, ExpH);
+            SizeF z = m == Mode.Mini ? MiniSize : m == Mode.Idle ? IdleSize : m == Mode.Compact ? CompSize : m == Mode.Toast ? ToastSize : new SizeF(ExpSize.Width, PageH);
             sw.T = z.Width;
             sh.T = z.Height;
             if (!anim.Enabled) Kick();
@@ -409,7 +429,10 @@ namespace Notchira
         {
             float happy = 0, wide = 0, droop = 0;
             bool focus = false;
-            if (thinking) focus = true;
+            var vs = voice != null ? voice.State : VoiceSession.St.Ended;
+            if (thinking || vs == VoiceSession.St.Thinking || vs == VoiceSession.St.Connecting) focus = true;
+            else if (vs == VoiceSession.St.Speaking) happy = 1;
+            else if (vs == VoiceSession.St.Listening) wide = 0.6f;
             else if (toast != null)
             {
                 if (toast.Progress >= 0 && toast.Progress < 100) focus = true;
@@ -430,13 +453,6 @@ namespace Notchira
         }
 
         bool lookLocked, thinking;
-
-        // The assistant is waiting for an answer: the eyes look down, like for a running job.
-        public void SetThinking(bool on)
-        {
-            if (IsDisposed || !IsHandleCreated) return;
-            BeginInvoke((Action)delegate { thinking = on; UpdateMood(); });
-        }
 
         void OnLook()
         {
@@ -459,6 +475,7 @@ namespace Notchira
 
         bool MiniWanted()
         {
+            if (voice != null) return false;
             string m = Settings.Get("mini", "auto");
             if (m == "mini") return true;
             if (m == "normal") return false;
@@ -502,7 +519,7 @@ namespace Notchira
                 // the pointer may never have entered the window (it grew under a resting cursor)
                 float x0 = Left + ((MaxW - sw.X) / 2f) * S;
                 bool inside = cursor.X >= x0 && cursor.X <= x0 + sw.X * S && cursor.Y <= Top + sh.X * S;
-                if (inside) leave.Stop(); else if (!leave.Enabled) leave.Start();
+                if (inside || Typing || Environment.TickCount < openGrace) leave.Stop(); else if (!leave.Enabled) leave.Start();
             }
         }
 
@@ -601,8 +618,15 @@ namespace Notchira
 
         void ApplyVisible()
         {
-            bool want = !userHidden && !fsHidden && !Teleprompter.Open;
+            bool want = !userHidden && !fsHidden && !Teleprompter.Open && !Drop.AnyOpen;
             if (want == Visible) return;
+            if (!want)
+            {
+                hover = false;
+                leave.Stop();
+                if (input != null && input.Visible) { SaveDraft(); input.Hide(); }
+                Retarget();
+            }
             Visible = want;
             if (want) { CaptureBackdrop(); Render(); }
         }
@@ -621,38 +645,39 @@ namespace Notchira
         {
             base.OnMouseLeave(e);
             if (hover) leave.Start();
+            if (hot != null) { hot = null; Render(); }
         }
 
-        // Scrolling over the island while it is closed changes the system volume.
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            Hit h = HitAt(new PointF(e.X / S, e.Y / S));
+            string id = h == null ? null : h.Id;
+            Cursor = h == null ? Cursors.Default : Cursors.Hand;
+            if (id != hot) { hot = id; Render(); }
+        }
+
+        // Scrolling over the island while it is closed changes the system volume; while open it scrolls the page.
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
-            if (cur == Mode.Expanded) return;
+            if (cur == Mode.Expanded) { ScrollPage(e.Delta); return; }
             byte vk = e.Delta > 0 ? (byte)0xAF : (byte)0xAE;
             Native.keybd_event(vk, 0, 0, UIntPtr.Zero);
             Native.keybd_event(vk, 0, 2, UIntPtr.Zero);
         }
 
-        static float Dist(float x1, float y1, float x2, float y2)
-        {
-            return (float)Math.Sqrt((x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2));
-        }
-
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
-            if (e.Button != MouseButtons.Left || cur != Mode.Expanded || track == null) return;
-            if (sh.X < ExpH - 20) return;
-            float x = e.X / S, y = e.Y / S, ex = (MaxW - ExpSize.Width) / 2f, cx = ex + TextX + TextW / 2;
-            if (Dist(x, y, ex + 15, 14) < 11) { SetMiniSetting("mini"); return; }
-            if (Dist(x, y, cx, BtnY) < 20) { Ping("click"); Toggle(); }
-            else if (Dist(x, y, cx - 46, BtnY) < 18) { Ping("click"); SkipPrev(); }
-            else if (Dist(x, y, cx + 46, BtnY) < 18) { Ping("click"); SkipNext(); }
-            else if (y > BarY - 10 && y < BarY + 14 && x >= ex + TextX && x <= ex + TextX + TextW && track.Duration > TimeSpan.Zero)
-            {
-                double f = (x - (ex + TextX)) / TextW;
-                SeekTo(TimeSpan.FromTicks((long)(track.Duration.Ticks * f)));
-            }
+            if (e.Button == MouseButtons.Right) { OpenPage(Page.Setup, false); return; }
+            if (e.Button != MouseButtons.Left || cur != Mode.Expanded) return;
+            var p = new PointF(e.X / S, e.Y / S);
+            Hit h = HitAt(p);
+            if (h == null) return;
+            Wake();
+            h.Do(p);
+            Render();
         }
 
         // ---- backdrop for the glass material ----------------------------------------------------------------
@@ -727,6 +752,8 @@ namespace Notchira
         {
             if (!IsHandleCreated || !Visible || frame == null) return;
             float w = sw.X, h = sh.X, x0 = (MaxW - w) / 2f;
+            building = new List<Hit>();
+            fieldId = null;
             using (var g = Graphics.FromImage(frame))
             {
                 g.Clear(Color.Transparent);
@@ -742,7 +769,10 @@ namespace Notchira
                     g.ResetClip();
                 }
             }
+            hits = building ?? new List<Hit>();
+            building = null;
             Present();
+            SyncInput();
         }
 
         void DrawMaterial(Graphics g, GraphicsPath p, float x0, float w, float h)
@@ -778,17 +808,30 @@ namespace Notchira
                 if (ta > 0.02f) DrawToast(g, x0, w, ta);
                 return;
             }
-            float tExp = Clamp01((h - CompSize.Height) / (ExpH - CompSize.Height));
+            float tExp = Clamp01((h - CompSize.Height) / (PageH - CompSize.Height));
+            if (tExp < 0.95f || cur != Mode.Expanded) building = null;
             float tCmp = Clamp01((w - 120) / (CompSize.Width - 120)) * (1 - tExp);
             float tIdle = (1 - Clamp01((w - 100) / 50)) * (1 - tExp);
             float km = Clamp01((h - MiniSize.Height) / (IdleSize.Height - MiniSize.Height));
             eyes.Draw(g, MaxW / 2f, MiniSize.Height / 2f * (1 - km) + 12f * km, 0.5f * (1 - km) + 1.2f * km, tIdle);
-            if (tCmp > 0.02f && track != null) DrawCompact(g, x0, w, tCmp);
-            if (tExp > 0.02f) DrawExpanded(g, x0, tExp * tExp);
+            if (tCmp > 0.02f && (track != null || voice != null)) DrawCompact(g, x0, w, tCmp);
+            if (tExp > 0.02f) DrawExpanded(g, x0, tExp * tExp, building != null);
         }
 
         void DrawCompact(Graphics g, float x0, float w, float a)
         {
+            if (voice != null)
+            {
+                // a spoken conversation is going on: state colour around the microphone, and the latest words
+                var v = voice;
+                using (var b = new SolidBrush(StateColor(v.State, a * 0.9f))) g.FillEllipse(b, x0 + 9, 5, 22, 22);
+                DrawMicGlyph(g, x0 + 20, 16, Color.FromArgb((int)(255 * Clamp01(a)), 14, 14, 18));
+                string said = (v.Live ?? "").Trim();
+                using (var b = new SolidBrush(Wh(a, 240)))
+                    g.DrawString(said.Length > 0 ? said : StateText(v.State) + "...", fComp, b, new RectangleF(x0 + 40, 8, w - 40 - 44, 18), sfNear);
+                eyes.Draw(g, x0 + w - 27, 16, 0.85f, a);
+                return;
+            }
             DrawArt(g, new RectangleF(x0 + 10, 5, 22, 22), 5, a);
             string line = track.Playing ? CurrentLine() : "";
             using (var b = new SolidBrush(Wh(a, 240)))
@@ -820,44 +863,60 @@ namespace Notchira
                 g.DrawString(text.Length > 0 ? text : "\u266A", f, b, new RectangleF(x, y, TextW, 20), sfNear);
         }
 
-        void DrawExpanded(Graphics g, float ex, float a)
+        void DrawExpanded(Graphics g, float ex, float a, bool live)
         {
-            using (var pen = new Pen(Wh(a, 150), 1.8f))
+            // the ^ in the corner shrinks the island to Mini
+            using (var pen = new Pen(Wh(a, hot == "mini" ? 245 : 150), 1.8f))
             {
                 pen.StartCap = pen.EndCap = LineCap.Round;
-                g.DrawLines(pen, new[] { new PointF(ex + 10, 17), new PointF(ex + 15, 12), new PointF(ex + 20, 17) });
+                g.DrawLines(pen, new[] { new PointF(ex + 12, 18), new PointF(ex + 17, 13), new PointF(ex + 22, 18) });
             }
-            eyes.Draw(g, ex + ExpSize.Width - 36, 20, 0.95f, a);
+            AddHit("mini", new RectangleF(ex + 4, 3, 26, 24), delegate { SetMiniSetting("mini"); });
+            eyes.Draw(g, ex + ExpSize.Width - 34, 16, 0.85f, a);
+            DrawTabs(g, ex, a, live);
+            switch (page)
+            {
+                case Page.YouTube: DrawYouTube(g, ex, a); break;
+                case Page.Ai: DrawAi(g, ex, a); break;
+                case Page.Prompter: DrawPrompter(g, ex, a); break;
+                case Page.Setup: DrawSetup(g, ex, a); break;
+                default: DrawMusic(g, ex, a); break;
+            }
+        }
+
+        void DrawMusic(Graphics g, float ex, float a)
+        {
+            const float T = TabH;
             if (track == null)
             {
                 var now = DateTime.Now;
                 CultureInfo ci;
                 try { ci = new CultureInfo("id-ID"); } catch { ci = CultureInfo.InvariantCulture; }
                 using (var b = new SolidBrush(Wh(a, 245)))
-                    g.DrawString(now.ToString("HH:mm"), fClock, b, new RectangleF(ex, 34, ExpSize.Width, 50), sfMid);
+                    g.DrawString(now.ToString("HH:mm"), fClock, b, new RectangleF(ex, 34 + T, ExpSize.Width, 50), sfMid);
                 using (var b = new SolidBrush(Wh(a, 140)))
-                    g.DrawString(now.ToString("dddd, d MMMM", ci), fSub, b, new RectangleF(ex, 86, ExpSize.Width, 20), sfMid);
+                    g.DrawString(now.ToString("dddd, d MMMM", ci), fSub, b, new RectangleF(ex, 86 + T, ExpSize.Width, 20), sfMid);
                 return;
             }
 
-            DrawArt(g, new RectangleF(ex + 18, 22 + LyrOff / 2, 96, 96), 14, a);
+            DrawArt(g, new RectangleF(ex + 18, 22 + LyrOff / 2 + T, 96, 96), 14, a);
             float tx = ex + TextX;
             using (var b = new SolidBrush(Wh(a, 250)))
-                g.DrawString(track.Title, fTitle, b, new RectangleF(tx, 20, TextW - 50, 22), sfNear);
+                g.DrawString(track.Title, fTitle, b, new RectangleF(tx, 20 + T, TextW, 22), sfNear);
             using (var b = new SolidBrush(Wh(a, 160)))
-                g.DrawString(track.Artist, fSub, b, new RectangleF(tx, 43, TextW, 20), sfNear);
+                g.DrawString(track.Artist, fSub, b, new RectangleF(tx, 43 + T, TextW, 20), sfNear);
             if (lyrics != null)
             {
                 int idx = lyrics.IndexAt(track.Now());
-                DrawLyricLine(g, tx, 62, lyrics.Line(idx - 1), fSub, Wh(a, 105));
+                DrawLyricLine(g, tx, 62 + T, lyrics.Line(idx - 1), fSub, Wh(a, 105));
                 string now = idx >= 0 ? lyrics.Line(idx) : "";
-                DrawLyricLine(g, tx, 80, now.Length > 0 ? now : "\u266A", fLyric, Wh(a, 255));
-                DrawLyricLine(g, tx, 101, lyrics.Line(idx + 1), fSub, Wh(a, 105));
+                DrawLyricLine(g, tx, 80 + T, now.Length > 0 ? now : "♪", fLyric, Wh(a, 255));
+                DrawLyricLine(g, tx, 101 + T, lyrics.Line(idx + 1), fSub, Wh(a, 105));
             }
 
             TimeSpan pos = track.Now(), dur = track.Duration;
             float frac = dur > TimeSpan.Zero ? (float)Math.Min(1.0, pos.TotalSeconds / dur.TotalSeconds) : 0f;
-            using (var b = new SolidBrush(Wh(a, 55)))
+            using (var b = new SolidBrush(Wh(a, hot == "seek" ? 80 : 55)))
                 g.FillPath(b, RoundRect(new RectangleF(tx, BarY, TextW, 4), 2));
             if (frac > 0.002f)
                 using (var b = new SolidBrush(Wh(a, 235)))
@@ -868,6 +927,9 @@ namespace Notchira
                 if (dur > TimeSpan.Zero)
                     g.DrawString(Fmt(dur), fSmall, b, new RectangleF(tx + TextW - 60, BarY + 8, 60, 14), sfFar);
             }
+            if (dur > TimeSpan.Zero)
+                AddHitAt("seek", new RectangleF(tx, BarY - 8, TextW, 18), p =>
+                    SeekTo(TimeSpan.FromTicks((long)(track.Duration.Ticks * Clamp01((p.X - tx) / TextW)))));
 
             float cx = tx + TextW / 2;
             using (var b = new SolidBrush(Wh(a, 235)))
@@ -875,6 +937,9 @@ namespace Notchira
                 DrawSkip(g, b, cx - 46, BtnY, -1);
                 DrawSkip(g, b, cx + 46, BtnY, 1);
             }
+            AddHit("prev", new RectangleF(cx - 64, BtnY - 18, 36, 36), delegate { Ping("click"); SkipPrev(); });
+            AddHit("next", new RectangleF(cx + 28, BtnY - 18, 36, 36), delegate { Ping("click"); SkipNext(); });
+            AddHit("play", new RectangleF(cx - 20, BtnY - 20, 40, 40), delegate { Ping("click"); Toggle(); });
             using (var b = new SolidBrush(Wh(a, 245))) g.FillEllipse(b, cx - 17, BtnY - 17, 34, 34);
             using (var b = new SolidBrush(Color.FromArgb((int)(255 * Clamp01(a)), 12, 12, 16)))
             {
@@ -964,68 +1029,16 @@ namespace Notchira
 
         // ---- tray and menu ----------------------------------------------------------------------------------
 
+        // Only a fallback for when the island is hidden: every setting lives in the island's Atur tab.
         void BuildTray()
         {
             menu = new ContextMenuStrip();
             miHide = new ToolStripMenuItem();
             miHide.Click += delegate { ToggleHidden(); };
-            miLiquid = new ToolStripMenuItem("Liquid Glass");
-            miLiquid.Click += delegate { SetMaterial("liquid"); };
-            miSolid = new ToolStripMenuItem("Hitam pekat");
-            miSolid.Click += delegate { SetMaterial("solid"); };
-            var mat = new ToolStripMenuItem("Material");
-            mat.DropDownItems.AddRange(new ToolStripItem[] { miLiquid, miSolid });
-            miLyrics = new ToolStripMenuItem("Cari lirik online (LRCLIB)");
-            miLyrics.Click += delegate
-            {
-                Settings.Set("lyrics.online", Settings.Get("lyrics.online", "1") == "1" ? "0" : "1");
-            };
-            miSound = new ToolStripMenuItem("Efek suara");
-            miSound.Click += delegate { Settings.Set("sound", Settings.Get("sound", "1") == "1" ? "0" : "1"); };
-            var modeMenu = new ToolStripMenuItem("Mode island");
-            miNormal = new ToolStripMenuItem("Normal");
-            miNormal.Click += delegate { SetMiniSetting("normal"); };
-            miMini = new ToolStripMenuItem("Mini\tCtrl+Alt+K");
-            miMini.Click += delegate { SetMiniSetting("mini"); };
-            miAutoMini = new ToolStripMenuItem("Otomatis");
-            miAutoMini.Click += delegate { SetMiniSetting("auto"); };
-            miMiniNotif = new ToolStripMenuItem("Notifikasi tetap muncul saat Mini");
-            miMiniNotif.Click += delegate { Settings.Set("mini.notif", Settings.Get("mini.notif", "1") == "1" ? "0" : "1"); };
-            modeMenu.DropDownItems.AddRange(new ToolStripItem[] { miNormal, miMini, miAutoMini, new ToolStripSeparator(), miMiniNotif });
-            var miAssistant = new ToolStripMenuItem("Asisten AI...\tCtrl+Alt+A");
-            miAssistant.Click += delegate { AssistantWindow.ShowWindow(); };
-            var miMusic = new ToolStripMenuItem("Musik YouTube...");
-            miMusic.Click += delegate { MusicWindow.ShowWindow(); };
-            var miPrompter = new ToolStripMenuItem("Teleprompter...");
-            miPrompter.Click += delegate { Teleprompter.ShowEditor(); };
-            miStart = new ToolStripMenuItem("Tambahkan ke menu Start (bisa dicari)");
-            miStart.Click += delegate { SetStartShortcut(!HasStartShortcut()); };
-            miAuto = new ToolStripMenuItem("Mulai bersama Windows");
-            miAuto.Click += delegate { SetAutostart(!IsAutostart()); };
-            var miFolder = new ToolStripMenuItem("Buka folder data");
-            miFolder.Click += delegate
-            {
-                try { Directory.CreateDirectory(Settings.Dir); Process.Start(Settings.Dir); } catch { }
-            };
             var miQuit = new ToolStripMenuItem("Keluar");
             miQuit.Click += delegate { Application.Exit(); };
-            menu.Items.AddRange(new ToolStripItem[] { miHide, modeMenu, miAssistant, miMusic, miPrompter, mat, miLyrics, miSound, miStart, miAuto, miFolder, new ToolStripSeparator(), miQuit });
-            menu.Opening += delegate
-            {
-                miHide.Text = (userHidden ? "Tampilkan island" : "Sembunyikan island") + "\tCtrl+Alt+H";
-                miLiquid.Checked = material == "liquid";
-                miSolid.Checked = material != "liquid";
-                miLyrics.Checked = Settings.Get("lyrics.online", "1") == "1";
-                miSound.Checked = Settings.Get("sound", "1") == "1";
-                miStart.Checked = HasStartShortcut();
-                string mm = Settings.Get("mini", "auto");
-                miNormal.Checked = mm == "normal";
-                miMini.Checked = mm == "mini";
-                miAutoMini.Checked = mm == "auto";
-                miMiniNotif.Checked = Settings.Get("mini.notif", "1") == "1";
-                miAuto.Checked = IsAutostart();
-            };
-            ContextMenuStrip = menu;
+            menu.Items.AddRange(new ToolStripItem[] { miHide, new ToolStripSeparator(), miQuit });
+            menu.Opening += delegate { miHide.Text = (userHidden ? "Tampilkan island" : "Sembunyikan island") + "\tCtrl+Alt+H"; };
 
             tray = new NotifyIcon();
             tray.Icon = MakeIcon();
@@ -1299,17 +1312,201 @@ namespace Notchira
             else dl();
         }
 
+        // Dev hook: NOTCHIRA_DEMO=pages opens every tab with sample data and dumps a frame of each.
+        void DemoPages()
+        {
+            string dir = Environment.GetEnvironmentVariable("NOTCHIRA_DUMP");
+            Directory.CreateDirectory(dir);
+            Action<string> log = s => File.AppendAllText(Path.Combine(dir, "pages.log"), s + Environment.NewLine);
+            track = new TrackInfo
+            {
+                Title = "Aurora Borealis", Artist = "Notchira Sound Lab", Album = "", Playing = true,
+                Position = TimeSpan.FromSeconds(45), Duration = TimeSpan.FromSeconds(192), Stamp = DateTime.UtcNow
+            };
+            lyricKey = "demo";
+            SetLyrics(Lyrics.Parse("[00:40.00]Pagi datang membawa cahaya\n[00:44.00]Langkahku ringan menyusuri kota\n[00:50.00]Di tepi layar aku menunggu"));
+            string[] titles = { "Lagu Pagi", "Senja di Kota", "Hujan Bulan Juni", "Jalan Pulang", "Langit Biru", "Kopi Hitam", "Bintang Kecil", "Malam Minggu" };
+            for (int i = 0; i < titles.Length; i++)
+                Library.Add(new Song { Id = "demo" + i, Title = titles[i], Artist = "Artis " + (i + 1), Seconds = 180 + i * 17, Added = i });
+            Library.CreatePlaylist("Santai");
+            Library.AddToPlaylist("Santai", "demo1");
+            history.Clear();
+            history.Add(new AiMessage("user", "Apa ibu kota Australia?"));
+            history.Add(new AiMessage("assistant", "Ibu kota Australia adalah Canberra, bukan Sydney. Canberra dipilih sebagai jalan tengah antara Sydney dan Melbourne, dan resmi menjadi ibu kota pada 1913."));
+            drafts["url"] = "";
+            var order = new[] { Page.Music, Page.YouTube, Page.Ai, Page.Prompter, Page.Setup };
+            int step = 0;
+            var t = new Timer { Interval = 1100 };
+            t.Tick += delegate
+            {
+                if (step > 0)
+                {
+                    Page shown = order[step - 1];
+                    CaptureBackdrop();
+                    Render();
+                    frame.Save(Path.Combine(dir, "page-" + shown.ToString().ToLowerInvariant() + ".png"), ImageFormat.Png);
+                    log(shown + ": size=" + sw.X.ToString("0") + "x" + sh.X.ToString("0") + " hits=" + hits.Count +
+                        " field=" + (fieldId ?? "-") + " input=" + (input != null && input.Visible ? input.Bounds.ToString() : "hidden"));
+                }
+                if (step == order.Length)
+                {
+                    // hotkey path: the assistant opens with the cursor far away and the text box takes the keyboard
+                    t.Stop();
+                    Cursor.Position = new Point(Left + (int)(MaxW * S) + 300, Top + 500);
+                    OpenPage(Page.Ai, true);
+                    var k = new Timer { Interval = 1200 };
+                    int ks = 0;
+                    k.Tick += delegate
+                    {
+                        ks++;
+                        if (ks == 1) { log("hotkey open: mode=" + cur + " focus=" + Typing); return; }
+                        log("still open after the grace period while focused: " + (cur == Mode.Expanded));
+                        k.Stop();
+                        Application.Exit();
+                    };
+                    k.Start();
+                    return;
+                }
+                Cursor.Position = new Point(Left + (int)(MaxW / 2 * S), Top + (int)(150 * S));
+                OpenPage(order[step], false);
+                step++;
+            };
+            t.Start();
+        }
+
+        // Dev hook: NOTCHIRA_DEMO=models opens the model picker, tries a wrong and a right model name against the
+        // provider (needs keys.dat in NOTCHIRA_DIR), asks one question with the added model, and dumps frames.
+        void DemoModels()
+        {
+            string dir = Environment.GetEnvironmentVariable("NOTCHIRA_DUMP");
+            Directory.CreateDirectory(dir);
+            Action<string> log = s => File.AppendAllText(Path.Combine(dir, "models.log"), s + Environment.NewLine);
+            Action<string> shot = name => { CaptureBackdrop(); Render(); frame.Save(Path.Combine(dir, name + ".png"), ImageFormat.Png); };
+            Settings.Set("ai.provider", "groq");
+            int step = 0;
+            var t = new Timer { Interval = 2500 };
+            t.Tick += delegate
+            {
+                Cursor.Position = new Point(Left + (int)(MaxW / 2 * S), Top + (int)(150 * S));
+                step++;
+                switch (step)
+                {
+                    case 1: OpenPage(Page.Ai, false); modelPick = true; voiceTab = Environment.GetEnvironmentVariable("NOTCHIRA_VOICE_TAB") != null; break;
+                    case 2: shot("models-1-list"); addModel = true; AddModel("openai/gpt-oss-20bx"); break;
+                    case 4: log("wrong name: " + aiStatus); shot("models-2-wrong"); AddModel("openai/gpt-oss-safeguard-20b"); break;
+                    case 6:
+                        log("right name: " + aiStatus + " | selected=" + Ai.Model(Ai.Find("groq")) + " | list=" + string.Join(", ", Ai.Models(Ai.Find("groq")).ToArray()));
+                        modelPick = true;
+                        shot("models-3-added");
+                        modelPick = false;
+                        Send("Jawab satu kata saja: ibu kota Jepang?");
+                        break;
+                    case 9:
+                        log("answer with the added model: " + (history.Count > 1 ? history[history.Count - 1].Text : "(none)") + " | " + aiStatus);
+                        shot("models-4-answer");
+                        t.Stop();
+                        Application.Exit();
+                        break;
+                }
+            };
+            t.Start();
+        }
+
+        // Dev hook: NOTCHIRA_DEMO=voice with NOTCHIRA_VOICE_WAV (the question) and NOTCHIRA_VOICE_MUTE=1 runs one spoken
+        // conversation with the provider in voice.provider, logs every state and turn, and dumps frames along the way.
+        void DemoVoice()
+        {
+            string dir = Environment.GetEnvironmentVariable("NOTCHIRA_DUMP");
+            Directory.CreateDirectory(dir);
+            var clock = Stopwatch.StartNew();
+            Action<string> log = s => File.AppendAllText(Path.Combine(dir, "voice.log"), clock.ElapsedMilliseconds.ToString().PadLeft(6) + " ms  " + s + Environment.NewLine);
+            Action<string> shot = name => { CaptureBackdrop(); Render(); frame.Save(Path.Combine(dir, name + ".png"), ImageFormat.Png); };
+            history.Clear();
+            Cursor.Position = new Point(Left + (int)(MaxW / 2 * S), Top + (int)(150 * S));
+            OpenPage(Page.Ai, false);
+            StartVoice();
+            var v = voice;
+            if (v == null) { log("not started: " + aiStatus); Application.Exit(); return; }
+            log("start " + v.Name + " " + v.Model);
+            var seen = new HashSet<string>();
+            VoiceSession.St last = VoiceSession.St.Connecting;
+            int turns = 0, shots = 0;
+            v.Turn += (role, text) => { turns++; log("turn " + role + ": " + text); };
+            var t = new Timer { Interval = 100 };
+            t.Tick += delegate
+            {
+                var st = v.State;
+                if (st != last)
+                {
+                    log("state " + st + (st == VoiceSession.St.Ended ? " error=" + (v.Error ?? "-") + " quiet=" + v.Quiet : "") + " key=" + v.KeyLabel);
+                    last = st;
+                    if (!seen.Contains(st.ToString()) && st != VoiceSession.St.Ended) { seen.Add(st.ToString()); shot("voice-" + (++shots) + "-" + st.ToString().ToLowerInvariant()); }
+                }
+                if (st == VoiceSession.St.Ended || clock.ElapsedMilliseconds > 60000)
+                {
+                    log("audio received: " + (v.AudioBytes / 48000.0).ToString("0.0") + " s, status: " + aiStatus);
+                    if (st != VoiceSession.St.Ended) { log("timeout, stopping"); v.Stop(); }
+                    hover = false;
+                    Retarget();
+                    var end = new Timer { Interval = 800 };
+                    end.Tick += delegate { end.Stop(); hover = true; Retarget(); var e2 = new Timer { Interval = 900 }; e2.Tick += delegate { e2.Stop(); shot("voice-after"); Application.Exit(); }; e2.Start(); };
+                    end.Start();
+                    t.Stop();
+                }
+                else if (turns >= 2 && st == VoiceSession.St.Listening && clock.ElapsedMilliseconds > 3000 && !seen.Contains("compact") &&
+                         Environment.GetEnvironmentVariable("NOTCHIRA_VOICE_WAIT") == null)
+                {
+                    // after the first answer: show the compact island too, then end the session by hand
+                    seen.Add("compact");
+                    hover = false;
+                    Retarget();
+                    var c = new Timer { Interval = 900 };
+                    c.Tick += delegate { c.Stop(); shot("voice-compact"); log("stop by hand"); StopVoice(); };
+                    c.Start();
+                }
+            };
+            t.Start();
+        }
+
+        // Dev hook: NOTCHIRA_DEMO=mictest opens the real microphone for three seconds, entirely offline, and logs what came in.
+        void DemoMic()
+        {
+            string dir = Environment.GetEnvironmentVariable("NOTCHIRA_DUMP");
+            Directory.CreateDirectory(dir);
+            int pieces = 0, bytes = 0;
+            float peak = 0;
+            var mic = new Mic(pcm => { pieces++; bytes += pcm.Length; peak = Math.Max(peak, Mic.Level(pcm)); });
+            string result;
+            try
+            {
+                mic.Start();
+                System.Threading.Thread.Sleep(3000);
+                mic.Dispose();
+                result = "opened: " + pieces + " pieces, " + bytes + " bytes (" + (bytes / 32000.0).ToString("0.00") + " s of audio), peak level " + peak.ToString("0.000");
+            }
+            catch (Exception ex) { result = "failed: " + ex.Message; }
+            var spk = new Speaker();
+            try
+            {
+                spk.Start();
+                spk.Write(new byte[Speaker.Rate * 2 / 10]);
+                bool busy = spk.Busy;
+                System.Threading.Thread.Sleep(400);
+                result += Environment.NewLine + "speaker: opened, busy while playing 100 ms of silence=" + busy + ", busy afterwards=" + spk.Busy;
+            }
+            catch (Exception ex) { result += Environment.NewLine + "speaker failed: " + ex.Message; }
+            spk.Dispose();
+            File.WriteAllText(Path.Combine(dir, "mictest.log"), result);
+            Application.Exit();
+        }
+
         void StartDemo(string mode)
         {
-            if (mode == "assistantwin" || mode == "keyswin")
+            if (mode == "keyswin")
             {
-                if (mode == "keyswin")
-                {
-                    Secrets.Add("groq", "Key utama", "gsk_demo_1234");
-                    Secrets.Add("groq", "Key cadangan", "gsk_demo_5678");
-                    KeysWindow.ShowWindow("groq");
-                }
-                else AssistantWindow.ShowWindow();
+                Secrets.Add("groq", "Key utama", "gsk_demo_1234");
+                Secrets.Add("groq", "Key cadangan", "gsk_demo_5678");
+                KeysWindow.ShowWindow("groq");
                 var wt = new Timer { Interval = 1200 };
                 wt.Tick += delegate
                 {
@@ -1317,7 +1514,7 @@ namespace Notchira
                     string wd = Environment.GetEnvironmentVariable("NOTCHIRA_DUMP");
                     foreach (Form f in System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Cast<Form>(Application.OpenForms)))
                     {
-                        if (f == this || f.Width < 300) continue;
+                        if (f == this || f is IslandInput || f.Width < 300) continue;
                         using (var bmp = new Bitmap(f.Width, f.Height))
                         {
                             f.DrawToBitmap(bmp, new Rectangle(0, 0, bmp.Width, bmp.Height));
@@ -1334,7 +1531,10 @@ namespace Notchira
                 SelfTest.Run(Environment.GetEnvironmentVariable("NOTCHIRA_DUMP"), delegate { BeginInvoke((Action)Application.Exit); });
                 return;
             }
-            if (mode == "musicwin") { MusicWindow.Demo(Environment.GetEnvironmentVariable("NOTCHIRA_DUMP")); return; }
+            if (mode == "pages") { DemoPages(); return; }
+            if (mode == "models") { DemoModels(); return; }
+            if (mode == "voice") { DemoVoice(); return; }
+            if (mode == "mictest") { DemoMic(); return; }
             if (mode == "startmenu") { DemoStartMenu(); return; }
             if (mode == "autostart") { DemoAutostart(); return; }
             if (mode == "mini") { DemoMini(); return; }

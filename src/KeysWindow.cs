@@ -30,8 +30,7 @@ namespace Notchira
         {
             if (instance == null || instance.IsDisposed) instance = new KeysWindow();
             instance.Select(provider);
-            instance.Show();
-            instance.Activate();
+            Drop.Show(instance);
         }
 
         KeysWindow()
@@ -97,6 +96,7 @@ namespace Notchira
             Controls.AddRange(new Control[] { lbl, providers, view, add, remove, activate, reset, auto, modelLbl, model, baseLbl, baseUrl, transcribe, note });
             providers.SelectedIndex = 0;
             FormClosed += delegate { Memory.Trim(); };
+            Drop.Style(this, "Kunci API");
         }
 
         static Button Btn(string text, int x, int y, int w)
@@ -163,7 +163,7 @@ namespace Notchira
         {
             KeyInfo k = Selected();
             if (k == null) return;
-            if (MessageBox.Show("Hapus kunci \"" + k.Label + "\"?", "Notchira", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+            if (MessageBox.Show(this, "Hapus kunci \"" + k.Label + "\"?", "Notchira", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
             Secrets.Remove(Current, k.Id);
             Reload();
         }
@@ -189,7 +189,7 @@ namespace Notchira
                 f.CancelButton = cancel;
                 if (f.ShowDialog(this) != DialogResult.OK) return;
                 try { Secrets.Add(Current, name.Text, value.Text); }
-                catch (ArgumentException ex) { MessageBox.Show(ex.Message, "Notchira"); }
+                catch (ArgumentException ex) { MessageBox.Show(this, ex.Message, "Notchira"); }
                 Reload();
             }
         }
