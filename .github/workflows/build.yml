@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -25,3 +25,12 @@ jobs:
           name: Notchira
           path: Notchira.exe
           if-no-files-found: error
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $hash = (Get-FileHash Notchira.exe -Algorithm SHA256).Hash
+          $notes = "Dynamic island ringan untuk Windows. Satu berkas ``Notchira.exe`` (Windows 10 2004+ atau Windows 11, 64-bit, .NET Framework 4.8 bawaan Windows).`n`nExe belum ditandatangani, jadi SmartScreen bisa memperingatkan: **More info**, lalu **Run anyway**. Fitur dan cara pakai ada di [README](https://github.com/${{ github.repository }}#readme).`n`nSHA-256: ``$hash``"
+          gh release create "${{ github.ref_name }}" Notchira.exe --title "Notchira ${{ github.ref_name }}" --notes "$notes"
