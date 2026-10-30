@@ -117,3 +117,7 @@ Variabel lingkungan untuk pengembangan:
 - `NOTCHIRA_GROQ_URL` dan `NOTCHIRA_DEEPGRAM_URL` mengganti alamat layanan transkripsi (untuk uji dengan server tiruan).
 - `NOTCHIRA_RUNKEY=<kunci registri>` dan `NOTCHIRA_STARTDIR=<folder>` mengalihkan kunci Run dan folder pintasan Start untuk uji. Salinan uji (`NOTCHIRA_DIR`) tidak menyentuh registri kecuali `NOTCHIRA_RUNKEY` diberikan.
 - `NOTCHIRA_DUMP=<folder>` simpan frame yang dirender sebagai PNG (dipakai bersama DEMO, lalu keluar).
+
+## Lisensi
+
+[MIT](LICENSE) © 2026 Wildan Mukmin. Lisensi ini hanya mencakup kode Notchira; yt-dlp dan layanan pihak ketiga (LRCLIB, Groq, Gemini, Deepgram) tunduk pada lisensi dan ketentuan masing-masing.
