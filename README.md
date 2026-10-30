@@ -55,7 +55,8 @@ Sudah ada:
 - **Asisten suara** (**Ctrl+Alt+V**, atau tombol mikrofon di tab Asisten): ngobrol langsung dengan suara. Tekan sekali untuk mulai, bicara biasa; penyedia mendeteksi sendiri kapan kamu selesai bicara lalu menjawab dengan suara yang diputar sambil datang. Teks ucapanmu dan jawabannya ikut tercatat di percakapan, dan island ringkas menampilkan kalimat terakhir. Selesai dengan **Selesai**, hotkey lagi, atau otomatis setelah 15 detik diam. Mata maskot melebar saat mendengar, menunduk saat berpikir, dan mengangguk saat bicara.
   - **Penyedia**, dipilih di pemilih model, bagian **Suara**: **Gemini Live** (`gemini-3.1-flash-live-preview` bawaan, termasuk tier gratis Gemini API, bisa bahasa Indonesia) atau **Deepgram Voice Agent** (nova-3 mendengar, GPT-4o mini berpikir, Aura-2 bicara; memakai kredit Deepgram; mengerti bahasa Indonesia, tetapi suara Aura-2 belum ada yang berbahasa Indonesia sehingga terdengar berlogat Inggris). Model Live lain atau suara Aura lain bisa ditambahkan dan diperiksa dulu ke penyedianya.
   - Tanpa peredam gema, suara dari speaker bisa terdengar lagi oleh mikrofon. Karena itu selama asisten bicara mikrofon mengirim hening. Dengan headset, nyalakan **Sela AI saat bicara** di tab Atur supaya bisa memotong jawaban.
-  - Audio mikrofon hanya dikirim selama sesi berjalan, ke penyedia yang dipilih. Kunci memakai daftar kunci yang sama (Gemini atau Deepgram) dengan pergantian otomatis bila kena batas.- **Mode Mini**: island menyusut jadi sliver kecil di tepi atas yang **tembus klik**, jadi tidak pernah menutupi tab browser atau bilah judul. Matanya tetap berkedip, mengikuti kursor, dan berekspresi. Tiga pilihan di tab Atur, **Mode island**:
+  - Audio mikrofon hanya dikirim selama sesi berjalan, ke penyedia yang dipilih. Kunci memakai daftar kunci yang sama (Gemini atau Deepgram) dengan pergantian otomatis bila kena batas.
+- **Mode Mini**: island menyusut jadi sliver kecil di tepi atas yang **tembus klik**, jadi tidak pernah menutupi tab browser atau bilah judul. Matanya tetap berkedip, mengikuti kursor, dan berekspresi. Tiga pilihan di tab Atur, **Mode island**:
   - **Normal**: island seperti biasa.
   - **Mini**: selalu sliver.
   - **Otomatis** (bawaan): sliver saat jendela aplikasi lain menutupi tepi atas (misalnya jendela yang dimaksimalkan), atau setelah semenit tanpa aktivitas.
@@ -65,17 +66,21 @@ Sudah ada:
 
 ## Rencana
 
-| Versi | Isi |
-|---|---|
-| 0.8 | Jawaban asisten bertahap (streaming), terjemahan teks lagu lewat asisten |
-| 0.9 | Paket tema maskot dari PNG (opsional), teks lagu terjemahan |
-| 1.0 | Pengaturan, bahasa ID/EN, navigasi keyboard, pembaca layar |
+Belum dijadwalkan, urutannya bisa berubah:
+
+- Bahasa ID/EN untuk antarmuka.
+- Kontrol sistem dari island: kecerahan, baterai.
+- Jawaban asisten bertahap (streaming).
+- Notifikasi pesan (opsional).
+- Workflow rilis: exe terunggah ke halaman rilis GitHub.
+- Terjemahan teks lagu dan paket tema maskot dari PNG (opsional).
+- Navigasi keyboard dan dukungan pembaca layar.
 
 API key disimpan terenkripsi (DPAPI) di `%APPDATA%\Notchira`, tidak pernah di repo.
 
 ## Pasang
 
-Tidak ada installer: Notchira satu berkas `Notchira.exe` (sekitar 190 KB). Syarat: Windows 10 versi 2004 atau lebih baru (atau Windows 11), 64-bit; .NET Framework 4.8 sudah bawaan Windows.
+Tidak ada installer: Notchira satu berkas `Notchira.exe` (sekitar 250 KB). Syarat: Windows 10 versi 2004 atau lebih baru (atau Windows 11), 64-bit; .NET Framework 4.8 sudah bawaan Windows.
 
 1. Bangun dengan `build.cmd` (lihat [Build](#build)), atau pakai exe hasil rilis.
 2. Taruh di folder tetap, misalnya `D:\Apps\Notchira\`, lalu jalankan. Exe belum ditandatangani, jadi SmartScreen bisa memperingatkan: **More info**, lalu **Run anyway**.
