@@ -124,7 +124,7 @@ namespace Notchira
                 }
             }
 
-            if (lrc == null && !onlyTranscribe && YtDlp.Installed && Settings.Get("lyrics.captions", "1") == "1")
+            if (lrc == null && !onlyTranscribe && !s.Local && YtDlp.Installed && Settings.Get("lyrics.captions", "1") == "1")
             {
                 bool capTransient;
                 string c = Captions(s, out capTransient);

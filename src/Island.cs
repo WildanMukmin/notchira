@@ -115,6 +115,7 @@ namespace Notchira
         public Island()
         {
             FormBorderStyle = FormBorderStyle.None;
+            AllowDrop = true;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
             TopMost = true;
@@ -190,6 +191,33 @@ namespace Notchira
         }
 
         protected override bool ShowWithoutActivation { get { return true; } }
+
+        // Dropping music files on the island adds them to the library (Pustaka tab). The island opens that tab
+        // as soon as files are dragged over it. Not available in Mini mode, which is click-through.
+        static bool HasFiles(DragEventArgs e) { return e.Data != null && e.Data.GetDataPresent(DataFormats.FileDrop); }
+
+        protected override void OnDragEnter(DragEventArgs e)
+        {
+            if (HasFiles(e))
+            {
+                e.Effect = DragDropEffects.Copy;
+                if (page != Page.Library || cur != Mode.Expanded) OpenPage(Page.Library, false);
+            }
+            else e.Effect = DragDropEffects.None;
+        }
+
+        protected override void OnDragOver(DragEventArgs e)
+        {
+            e.Effect = HasFiles(e) ? DragDropEffects.Copy : DragDropEffects.None;
+            if (HasFiles(e)) { openGrace = Environment.TickCount + 1500; leave.Stop(); }
+        }
+
+        protected override void OnDragDrop(DragEventArgs e)
+        {
+            if (!HasFiles(e)) return;
+            string[] paths = (string[])e.Data.GetData(DataFormats.FileDrop);
+            BeginInvoke((Action)delegate { if (!IsDisposed) ImportPaths(paths); });
+        }
 
         protected override void OnHandleCreated(EventArgs e)
         {
@@ -267,7 +295,7 @@ namespace Notchira
             if (toast != null) return Mode.Toast;
             if (voice != null) return Mode.Compact;
             if (miniOn && Environment.TickCount > holdUntil) return Mode.Mini;
-            if (track != null && (track.Playing || pausedRecent)) return Mode.Compact;
+            if (track != null && (track.Playing || pausedRecent) && Settings.Get("music.compact", "text") == "text") return Mode.Compact;
             return Mode.Idle;
         }
 
@@ -876,7 +904,7 @@ namespace Notchira
             DrawTabs(g, ex, a, live);
             switch (page)
             {
-                case Page.YouTube: DrawYouTube(g, ex, a); break;
+                case Page.Library: DrawLibrary(g, ex, a); break;
                 case Page.Ai: DrawAi(g, ex, a); break;
                 case Page.Prompter: DrawPrompter(g, ex, a); break;
                 case Page.Setup: DrawSetup(g, ex, a); break;
@@ -1334,7 +1362,7 @@ namespace Notchira
             history.Add(new AiMessage("user", "Apa ibu kota Australia?"));
             history.Add(new AiMessage("assistant", "Ibu kota Australia adalah Canberra, bukan Sydney. Canberra dipilih sebagai jalan tengah antara Sydney dan Melbourne, dan resmi menjadi ibu kota pada 1913."));
             drafts["url"] = "";
-            var order = new[] { Page.Music, Page.YouTube, Page.Ai, Page.Prompter, Page.Setup };
+            var order = new[] { Page.Music, Page.Library, Page.Ai, Page.Prompter, Page.Setup };
             int step = 0;
             var t = new Timer { Interval = 1100 };
             t.Tick += delegate

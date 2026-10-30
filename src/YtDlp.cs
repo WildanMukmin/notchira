@@ -154,8 +154,69 @@ namespace Notchira
 
         // ---- audio download -------------------------------------------------------------------------------
 
+        public const int PlaylistMax = 50;
+        static volatile bool cancelAll;
+
+        // A playlist page (youtube.com/playlist?list=...). A watch link that merely carries a list stays one song.
+        public static bool IsPlaylistUrl(string url)
+        {
+            Uri u;
+            if (!Uri.TryCreate(url ?? "", UriKind.Absolute, out u)) return false;
+            return u.AbsolutePath.TrimEnd('/') == "/playlist" && Regex.IsMatch(u.Query, @"[?&]list=[A-Za-z0-9_-]+");
+        }
+
+        // Runs on a pool thread. Lists the playlist, then downloads each song with the single-song path.
+        // listed(name, total, truncated) once the entries are known; progress(index, percent); got(id, song) per song
+        // (song is null when the file was already on disk); done(failed, error), error null when something arrived.
+        public static void DownloadPlaylist(string url, Action<string, int, bool> listed, Action<int, int> progress,
+            Action<string, Song> got, Action<int, string> done)
+        {
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                int failed = 0;
+                try
+                {
+                    cancelAll = false;
+                    string output;
+                    Run("--flat-playlist --no-warnings --playlist-end " + (PlaylistMax + 1) +
+                        " --print \"PL|||%(playlist_title)s|||%(id)s\" -- \"" + url + "\"", 120000, out output);
+                    string name = null;
+                    var ids = new List<string>();
+                    foreach (string line in output.Split('\n'))
+                    {
+                        string[] m = line.Trim().Split(new[] { "|||" }, StringSplitOptions.None);
+                        if (m.Length != 3 || m[0] != "PL" || !IdPattern.IsMatch(m[2]) || ids.Contains(m[2])) continue;
+                        if (name == null && m[1] != "NA" && m[1].Length > 0) name = m[1];
+                        ids.Add(m[2]);
+                    }
+                    bool truncated = ids.Count > PlaylistMax;
+                    if (truncated) ids.RemoveRange(PlaylistMax, ids.Count - PlaylistMax);
+                    if (ids.Count == 0) { done(0, "Playlist kosong, privat, atau tidak bisa dibaca."); return; }
+                    listed(name, ids.Count, truncated);
+
+                    int ok = 0;
+                    for (int i = 0; i < ids.Count && !cancelAll; i++)
+                    {
+                        string id = ids[i];
+                        int index = i;
+                        if (File.Exists(new Song { Id = id }.AudioPath)) { got(id, null); ok++; continue; }
+                        using (var wait = new System.Threading.ManualResetEventSlim(false))
+                        {
+                            Song result = null;
+                            Download("https://www.youtube.com/watch?v=" + id, p => progress(index, p), (s, err) => { result = s; wait.Set(); });
+                            wait.Wait();
+                            if (result != null) { got(id, result); ok++; } else failed++;
+                        }
+                    }
+                    done(failed, ok == 0 ? (cancelAll ? "Dibatalkan." : "Tidak ada lagu yang berhasil diunduh.") : null);
+                }
+                catch (Exception ex) { done(failed, ex.Message); }
+            });
+        }
+
         public static void Cancel()
         {
+            cancelAll = true;
             try { if (running != null && !running.HasExited) running.Kill(); } catch { }
         }
 

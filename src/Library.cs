@@ -11,14 +11,16 @@ namespace Notchira
         public string Id = "", Title = "", Artist = "";
         public int Seconds;
         public long Added;
+        public string Ext = "m4a";   // downloads are m4a; imported files keep their own extension
+        public bool Local;           // imported from disk: the id is not a YouTube video id
 
-        public string AudioPath { get { return Path.Combine(Library.MusicDir, Id + ".m4a"); } }
+        public string AudioPath { get { return Path.Combine(Library.MusicDir, Id + "." + Ext); } }
         public string ThumbPath { get { return Path.Combine(Library.MusicDir, Id + ".jpg"); } }
     }
 
     // Downloaded songs and playlists. Plain tab-separated files, so there is no parser to load and
     // nothing to carry in memory beyond the rows.
-    //   music\library.tsv    id  title  artist  seconds  added
+    //   music\library.tsv    id  title  artist  seconds  added  [ext  local]  [ext  local]
     //   music\playlists.tsv  name  id,id,id
     static class Library
     {
@@ -52,7 +54,8 @@ namespace Notchira
                         int sec; long add;
                         int.TryParse(p[3], out sec);
                         long.TryParse(p[4], out add);
-                        songs.Add(new Song { Id = p[0], Title = p[1], Artist = p[2], Seconds = sec, Added = add });
+                        string ext = p.Length > 5 && p[5].Length > 0 ? p[5] : "m4a";
+                        songs.Add(new Song { Id = p[0], Title = p[1], Artist = p[2], Seconds = sec, Added = add, Ext = ext, Local = p.Length > 6 && p[6] == "1" });
                     }
                 if (File.Exists(ListFile))
                     foreach (string line in File.ReadAllLines(ListFile, Encoding.UTF8))
@@ -82,7 +85,7 @@ namespace Notchira
         static void Save()
         {
             WriteAtomic(LibFile, songs.Select(s =>
-                s.Id + "\t" + Clean(s.Title) + "\t" + Clean(s.Artist) + "\t" + s.Seconds + "\t" + s.Added));
+                s.Id + "\t" + Clean(s.Title) + "\t" + Clean(s.Artist) + "\t" + s.Seconds + "\t" + s.Added + "\t" + s.Ext + "\t" + (s.Local ? "1" : "0")));
             WriteAtomic(ListFile, lists.Select(l => Clean(l.Key) + "\t" + string.Join(",", l.Value.ToArray())));
         }
 
@@ -138,6 +141,20 @@ namespace Notchira
                 if (s != null) result.Add(s);
             }
             return result;
+        }
+
+        // Returns the stored name (cleaned), creating the playlist when it does not exist yet.
+        public static string EnsurePlaylist(string name)
+        {
+            EnsureLoaded();
+            name = Clean(name);
+            if (name.Length == 0) name = "Playlist YouTube";
+            if (!lists.Any(l => l.Key == name))
+            {
+                lists.Add(new KeyValuePair<string, List<string>>(name, new List<string>()));
+                Save();
+            }
+            return name;
         }
 
         public static bool CreatePlaylist(string name)

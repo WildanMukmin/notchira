@@ -11,12 +11,12 @@ using System.Windows.Forms;
 namespace Notchira
 {
     // Everything that used to live in the tray menu and separate windows, drawn inside the open island:
-    // a row of tabs at the top (Musik, YouTube, Asisten, Prompter, Atur) and one page under it.
+    // a row of tabs at the top (Musik, Pustaka, Asisten, Prompter, Atur) and one page under it.
     sealed partial class Island
     {
-        enum Page { Music, YouTube, Ai, Prompter, Setup }
+        enum Page { Music, Library, Ai, Prompter, Setup }
 
-        static readonly string[] TabNames = { "Musik", "YouTube", "Asisten", "Prompter", "Atur" };
+        static readonly string[] TabNames = { "Musik", "Pustaka", "Asisten", "Prompter", "Atur" };
         const float TabH = 26;
 
         Page page = Page.Music;
@@ -40,10 +40,10 @@ namespace Notchira
             {
                 switch (page)
                 {
-                    case Page.YouTube: return 324;
+                    case Page.Library: return 324;
                     case Page.Ai: return 332;
                     case Page.Prompter: return 214;
-                    case Page.Setup: return 286;
+                    case Page.Setup: return 316;
                     default: return ExpH;
                 }
             }
@@ -104,7 +104,7 @@ namespace Notchira
 
         void OnPageShown()
         {
-            if (page == Page.YouTube) ReloadSongs();
+            if (page == Page.Library) ReloadSongs();
             if (page == Page.Prompter) LoadScriptInfo();
         }
 
@@ -139,7 +139,7 @@ namespace Notchira
             }
         }
 
-        // Tab icons drawn in code, about 14 px across: note, video, sparkle, script, gear.
+        // Tab icons drawn in code, about 14 px across: note, library list, sparkle, script, gear.
         static void DrawTabIcon(Graphics g, int i, float cx, float cy, Color c)
         {
             using (var b = new SolidBrush(c))
@@ -154,8 +154,11 @@ namespace Notchira
                         g.DrawBezier(pen, cx + 0.2f, cy - 6.5f, cx + 3.5f, cy - 5.5f, cx + 5.5f, cy - 4f, cx + 5f, cy - 1f);
                         break;
                     case 1:
-                        g.DrawPath(pen, RoundRect(new RectangleF(cx - 7.5f, cy - 5.5f, 15, 11), 3.5f));
-                        g.FillPolygon(b, new[] { new PointF(cx - 2, cy - 3), new PointF(cx - 2, cy + 3), new PointF(cx + 3.5f, cy) });
+                        g.DrawLine(pen, cx - 7, cy - 4.5f, cx + 2, cy - 4.5f);
+                        g.DrawLine(pen, cx - 7, cy, cx + 2, cy);
+                        g.DrawLine(pen, cx - 7, cy + 4.5f, cx - 1, cy + 4.5f);
+                        g.FillEllipse(b, cx + 2, cy + 1.5f, 5f, 4f);
+                        g.DrawLine(pen, cx + 6.3f, cy + 3f, cx + 6.3f, cy - 5f);
                         break;
                     case 2:
                         g.FillPolygon(b, Star(cx - 1, cy + 1, 6.5f));
@@ -248,7 +251,7 @@ namespace Notchira
 
         static string Cue(string id)
         {
-            if (id == "url") return "Tempel tautan YouTube, lalu Enter";
+            if (id == "url") return "Tautan YouTube, atau seret berkas musik ke sini";
             if (id == "list") return "Nama daftar putar baru, lalu Enter";
             if (id == "model") return "Nama model, mis. openai/gpt-oss-20b, lalu Enter";
             if (id == "vmodel") return "Model Gemini Live, atau suara Deepgram (aura-2-...)";
@@ -357,7 +360,7 @@ namespace Notchira
             if (input != null && inputFor == id) input.Box.Text = "";
         }
 
-        // ---- page: YouTube ------------------------------------------------------------------------------------
+        // ---- page: Pustaka ------------------------------------------------------------------------------------
 
         List<Song> songs = new List<Song>();
         string listName;      // null = all songs
@@ -376,21 +379,25 @@ namespace Notchira
             listTop = Math.Max(0, Math.Min(listTop, songs.Count - Rows));
         }
 
-        void DrawYouTube(Graphics g, float ex, float a)
+        void DrawLibrary(Graphics g, float ex, float a)
         {
             float W = ExpSize.Width, x = ex + 18, y = 36, inner = W - 36;
             if (!YtDlp.Installed)
             {
                 Txt(g, "yt-dlp belum terpasang", fComp, x, y, inner - 100, Wh(a, 230));
-                Txt(g, "Dibutuhkan untuk mengunduh, sekitar 25 MB dari GitHub", fTiny, x, y + 17, inner - 100, Wh(a, 140));
+                Txt(g, "Untuk tautan YouTube, sekitar 25 MB", fTiny, x, y + 17, inner - 190, Wh(a, 140));
                 fieldId = null;
                 Pill(g, "tool", new RectangleF(ex + W - 18 - 90, y, 90, 30), toolBusy ? "Memasang..." : "Pasang", true, a,
                     toolBusy ? (Action)null : delegate { InstallTool(); });
+                Pill(g, "pick", new RectangleF(ex + W - 18 - 90 - 6 - 84, y, 84, 30), "Berkas...", false, a,
+                    impBusy ? (Action)null : delegate { PickFiles(); });
             }
             else
             {
                 string fid = newList ? "list" : "url";
-                Field(g, fid, new RectangleF(x, y, inner - 96, 30), a);
+                Field(g, fid, new RectangleF(x, y, inner - 96 - 90, 30), a);
+                Pill(g, "pick", new RectangleF(ex + W - 18 - 88 - 6 - 84, y, 84, 30), "Berkas...", false, a,
+                    impBusy ? (Action)null : delegate { PickFiles(); });
                 string label = newList ? "Buat" : dlBusy ? "Batal" : "Unduh";
                 Pill(g, "go", new RectangleF(ex + W - 18 - 88, y, 88, 30), label, true, a, delegate
                 {
@@ -400,7 +407,7 @@ namespace Notchira
                 });
             }
 
-            if (dlBusy && dlPct >= 0)
+            if ((dlBusy || impBusy) && dlPct >= 0)
             {
                 using (var b = new SolidBrush(Wh(a, 40))) g.FillPath(b, RoundRect(new RectangleF(x, 70, inner, 3), 1.5f));
                 using (var b = new SolidBrush(Wh(a, 230))) g.FillPath(b, RoundRect(new RectangleF(x, 70, Math.Max(3, inner * dlPct / 100f), 3), 1.5f));
@@ -460,7 +467,7 @@ namespace Notchira
             float ly = 126;
             if (songs.Count == 0)
             {
-                string msg = listName == null ? "Belum ada lagu. Tempel tautan YouTube di atas." : "Daftar ini masih kosong. Tambahkan lagu dengan tombol + di baris lagu.";
+                string msg = listName == null ? "Belum ada lagu. Seret berkas musik ke sini, pilih Berkas..., atau tempel tautan YouTube." : "Daftar ini masih kosong. Tambahkan lagu dengan tombol + di baris lagu.";
                 using (var b = new SolidBrush(Wh(a, 120)))
                     g.DrawString(msg, fComp, b, new RectangleF(ex, ly + 60, W, 18), sfMid);
             }
@@ -539,11 +546,52 @@ namespace Notchira
             Render();
         }
 
+        bool impBusy;
+
+        void PickFiles()
+        {
+            if (impBusy) return;
+            string[] picked = null;
+            using (var d = new OpenFileDialog { Filter = Importer.Filter, Multiselect = true, Title = "Tambah musik" })
+                if (d.ShowDialog() == DialogResult.OK) picked = d.FileNames;
+            if (picked != null) ImportPaths(picked);
+        }
+
+        // From the file picker or a drop on the island.
+        void ImportPaths(IEnumerable<string> paths)
+        {
+            if (impBusy) return;
+            var files = Importer.Expand(paths);
+            if (files.Count == 0) { ytStatus = "Tidak ada berkas musik yang didukung (mp3, m4a, aac, wav, flac, wma, ogg, opus)."; Render(); return; }
+            impBusy = true;
+            dlPct = 0;
+            ytStatus = "Menambahkan " + files.Count + " berkas...";
+            Importer.Run(files,
+                (n, total) => Post(delegate { dlPct = total == 0 ? 0 : n * 100 / total; ytStatus = "Menambahkan " + Math.Min(n + 1, total) + "/" + total + "..."; }),
+                (added, skipped) => Post(delegate
+                {
+                    impBusy = false;
+                    dlPct = -1;
+                    foreach (Song s in added)
+                    {
+                        Library.Add(s);
+                        if (listName != null) Library.AddToPlaylist(listName, s.Id);
+                    }
+                    ytStatus = added.Count == 0 ? "Gagal menambahkan berkas."
+                        : added.Count + " lagu ditambahkan" + (skipped > 0 ? ", " + skipped + " dilewati." : ".");
+                    ReloadSongs();
+                    if (page != Page.Library || cur != Mode.Expanded)
+                        ShowToast(new Notify.Message { Title = "Musik ditambahkan", Body = ytStatus });
+                }));
+            Render();
+        }
+
         void StartDownload(string text)
         {
             if (dlBusy) return;
             string clean;
             if (!YtDlp.TryParseUrl(text, out clean)) { ytStatus = "Tempel tautan YouTube yang valid."; Render(); return; }
+            if (YtDlp.IsPlaylistUrl(clean)) { StartPlaylist(clean); return; }
             dlBusy = true;
             dlPct = 0;
             ytStatus = "Mengunduh...";
@@ -559,10 +607,49 @@ namespace Notchira
                         ytStatus = "Selesai: " + song.Title;
                         ClearField("url");
                         ReloadSongs();
-                        if (page != Page.YouTube || cur != Mode.Expanded)
+                        if (page != Page.Library || cur != Mode.Expanded)
                             ShowToast(new Notify.Message { Title = "Lagu siap diputar", Body = song.Title });
                     }
                     else ytStatus = "Gagal: " + err;
+                }));
+            Render();
+        }
+
+        void StartPlaylist(string url)
+        {
+            dlBusy = true;
+            dlPct = 0;
+            ytStatus = "Membaca playlist...";
+            string plName = null;
+            int total = 0, count = 0;
+            bool cut = false;
+            YtDlp.DownloadPlaylist(url,
+                (name, n, truncated) => Post(delegate { plName = Library.EnsurePlaylist(name); total = n; cut = truncated; ytStatus = "Playlist \"" + plName + "\": " + n + " lagu"; }),
+                (i, p) => Post(delegate { if (total > 0) { dlPct = (i * 100 + p) / total; ytStatus = "Mengunduh " + Math.Min(i + 1, total) + "/" + total + " (" + p + "%)"; } }),
+                (id, song) => Post(delegate
+                {
+                    if (song != null) Library.Add(song);
+                    if (plName != null) Library.AddToPlaylist(plName, id);
+                    count++;
+                    ReloadSongs();
+                }),
+                (failed, err) => Post(delegate
+                {
+                    dlBusy = false;
+                    dlPct = -1;
+                    if (err != null && count == 0) ytStatus = "Gagal: " + err;
+                    else
+                    {
+                        ytStatus = count + " lagu masuk ke \"" + plName + "\"" + (failed > 0 ? ", " + failed + " gagal" : "") +
+                            (cut ? ". Hanya " + YtDlp.PlaylistMax + " pertama." : err != null ? ". " + err : ".");
+                        ClearField("url");
+                        if (plName != null) listName = plName;
+                        listTop = 0;
+                        ReloadSongs();
+                        if (page != Page.Library || cur != Mode.Expanded)
+                            ShowToast(new Notify.Message { Title = "Playlist siap", Body = ytStatus });
+                    }
+                    Render();
                 }));
             Render();
         }
@@ -1175,7 +1262,14 @@ namespace Notchira
                 "mini:mini", "Mini", mm == "mini", (Action)delegate { SetMiniSetting("mini"); },
                 "mini:auto", "Otomatis", mm == "auto", (Action)delegate { SetMiniSetting("auto"); hover = true; });
 
-            float cw = (inner - 10) / 2, c2 = x + cw + 10, ry = 98, rh = 28;
+            Txt(g, "Saat musik main", fComp, x, 100, 140, Wh(a, 190));
+            string mc = Settings.Get("music.compact", "text");
+            float tw = PillW(g, "Judul / lirik") + 6 + PillW(g, "Mata saja");
+            Pills(g, x + inner - tw, 96, 22, a,
+                "mc:text", "Judul / lirik", mc == "text", (Action)delegate { Settings.Set("music.compact", "text"); Retarget(); },
+                "mc:eyes", "Mata saja", mc == "eyes", (Action)delegate { Settings.Set("music.compact", "eyes"); Retarget(); });
+
+            float cw = (inner - 10) / 2, c2 = x + cw + 10, ry = 128, rh = 28;
             Func<string, string, bool> on = (k, d) => Settings.Get(k, d) == "1";
             Action<string, string> flip = (k, d) => Settings.Set(k, on(k, d) ? "0" : "1");
             Switch(g, "s:sound", new RectangleF(x - 8, ry, cw + 8, rh), "Efek suara", on("sound", "1"), a, delegate { flip("sound", "1"); });
@@ -1189,7 +1283,7 @@ namespace Notchira
             using (var b = new SolidBrush(Wh(a, 110)))
                 g.DrawString("hanya dengan headset, speaker bisa memotong dirinya", fSmall, b, new RectangleF(c2 + 8, ry + 3 * rh + 8, cw, 14), sfNear);
 
-            float by = 226;
+            float by = 256;
             float bx = Pills(g, x, by, 24, a,
                 "keys2", "Kunci API", false, (Action)delegate { KeysWindow.ShowWindow(Settings.Get("ai.provider", "groq")); },
                 "folder", "Folder data", false, (Action)delegate { try { Directory.CreateDirectory(Settings.Dir); Process.Start(Settings.Dir); } catch { } },
@@ -1200,14 +1294,14 @@ namespace Notchira
                 if (Confirmed("quit")) Application.Exit();
             });
             using (var b = new SolidBrush(Wh(a, 110)))
-                g.DrawString("Ctrl+Alt+H sembunyikan  \u00B7  Ctrl+Alt+K mini  \u00B7  Ctrl+Alt+A asisten  \u00B7  Ctrl+Alt+V suara", fSmall, b, new RectangleF(x, 262, inner, 14), sfMid);
+                g.DrawString("Ctrl+Alt+H sembunyikan  \u00B7  Ctrl+Alt+K mini  \u00B7  Ctrl+Alt+A asisten  \u00B7  Ctrl+Alt+V suara", fSmall, b, new RectangleF(x, 292, inner, 14), sfMid);
         }
 
         // ---- wheel ----------------------------------------------------------------------------------------------
 
         void ScrollPage(int delta)
         {
-            if (page == Page.YouTube)
+            if (page == Page.Library)
             {
                 int to = Math.Max(0, Math.Min(listTop - Math.Sign(delta), songs.Count - Rows));
                 if (to != listTop) { listTop = to; Render(); }
