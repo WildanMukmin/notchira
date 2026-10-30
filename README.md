@@ -4,7 +4,7 @@ Dynamic island ringan untuk Windows. Duduk di tepi atas layar sebagai notch keci
 
 Native C# (.NET Framework 4.8, tanpa SDK), tanpa browser engine. Dibangun dengan `csc.exe` bawaan Windows.
 
-## Status: v0.12
+## Status: v0.13
 
 Sudah ada:
 - Notch di tepi atas dengan animasi pegas; tiga ukuran: idle, ringkas (sedang memutar musik), dan terbuka.
@@ -40,7 +40,7 @@ Sudah ada:
   | Ctrl+Alt+P | Buka editor naskah |
   | Ctrl+Alt+X | Hentikan |
 
-- **Volume musik terpisah.** Saat pemutar bawaan Notchira memutar lagu, scroll di atas island yang tertutup hanya mengubah volume musik itu (langkah 5%, tersimpan), bukan volume sistem, jadi suara Meet atau Zoom tidak ikut mengecil. Saat tidak ada lagu Notchira, scroll tetap mengubah volume sistem.
+- **Volume musik terpisah.** Saat pemutar bawaan Notchira memutar lagu, scroll di atas island yang tertutup, atau penggeser di tab Musik, hanya mengubah volume musik itu (langkah 5%, tersimpan), bukan volume sistem, jadi suara Meet atau Zoom tidak ikut mengecil. Saat tidak ada lagu Notchira, scroll tetap mengubah volume sistem.
 - **Pustaka musik** (tab Pustaka): tambah lagu dengan **seret berkas** ke island (tab Pustaka terbuka sendiri), tombol **Berkas...** (mp3, m4a, aac, wav, flac, wma, ogg, opus; folder diambil satu tingkat, maksimal 100 berkas), atau tempel tautan YouTube. Berkas disalin ke `%APPDATA%\Notchira\music`; judul, artis, durasi, dan sampul dibaca dari tag berkas, atau dari nama berkas bila berbentuk "Artis - Judul". Seret berkas tidak jalan saat Mode Mini karena island tembus klik. Untuk YouTube: tempel tautan lalu Enter. Tautan **playlist** (`youtube.com/playlist?list=...`) diunduh semuanya, maksimal 50 lagu, dan otomatis menjadi daftar putar bernama sama dengan playlist-nya; lagu yang gagal dilewati, dan **Batal** menghentikannya. Tautan video yang kebetulan membawa `list=` tetap satu lagu. Untuk satu video, Notchira mengunduh **audio saja** (m4a) dengan yt-dlp, lalu memutarnya dengan pemutar bawaan. Ada perpustakaan lokal (`%APPDATA%\Notchira\music`), daftar putar, acak, dan ulang (mati / semua / satu). Klik baris untuk memutar; arahkan kursor ke baris untuk **+ daftar**, **teks**, dan **hapus** (hapus minta klik kedua, "Yakin?"). Scroll di atas daftar untuk menggulir. Lagu yang diputar tampil di island dengan sampul, bilah progres, dan tombol yang sama seperti musik dari aplikasi lain. Pemutar dibuat saat lagu mulai dan dibuang saat antrean habis, jadi tidak memakan memori saat diam.
   - yt-dlp tidak ikut di repo. Saat pertama dipakai, klik **Pasang yt-dlp**: Notchira mengunduhnya dari rilis resmi GitHub (sekitar 25 MB) dan mencocokkan SHA-256-nya dengan daftar yang dirilis bersamanya. **Perbarui yt-dlp** memanggil `yt-dlp -U`, karena YouTube sering berubah.
   - Hanya tautan `youtube.com` dan `youtu.be` yang diterima. Pakai untuk lagu yang kamu berhak mengunduh; unduhan dari YouTube tunduk pada ketentuan layanannya.
