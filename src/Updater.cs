@@ -16,7 +16,7 @@ namespace Notchira
     // moves aside (.old), the new one takes its path, and the app starts again from there.
     static class Updater
     {
-        public const string Current = "0.18";
+        public const string Current = "0.19";
         const string Api = "https://api.github.com/repos/WildanMukmin/notchira/releases/latest";
 
         public static string Latest = "";   // newest version found, without the "v"
