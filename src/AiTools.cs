@@ -63,6 +63,13 @@ namespace Notchira
                         new AiToolParam("isi", "string", "Isi lengkap berkas, sebagai teks")
                     },
                     Run = args => MakeFile(ArgStr(args, "path"), ArgStr(args, "isi"))
+                },
+                new AiTool
+                {
+                    Name = "baca_file",
+                    Description = "Membaca isi satu berkas teks di komputer pengguna (skrip, catatan, markdown, kode, dan sejenisnya) supaya asisten bisa menjawab pertanyaan tentangnya, meringkasnya, atau menyarankan suntingan. Tidak bisa membaca berkas biner (gambar, exe, dan sejenisnya) atau berkas internal Notchira sendiri.",
+                    Params = new[] { new AiToolParam("path", "string", "Jalur berkas yang ingin dibaca; kalau cuma nama berkas tanpa folder, dicari di folder Documents pengguna") },
+                    Run = args => ReadFile(ArgStr(args, "path"))
                 }
             };
         }
@@ -202,6 +209,33 @@ namespace Notchira
             }
             catch (Exception ex) { return new AiToolResult("Gagal menyimpan berkas: " + ex.Message); }
             return new AiToolResult("Berkas disimpan di " + full + ".", "✎ Menyimpan: " + full);
+        }
+
+        const int MaxReadChars = 50000;
+
+        static AiToolResult ReadFile(string path)
+        {
+            path = (path ?? "").Trim();
+            if (path.Length == 0) return new AiToolResult("Nama atau jalur berkas tidak disebutkan.");
+            string full;
+            try { full = Path.IsPathRooted(path) ? Path.GetFullPath(path) : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), path); }
+            catch (Exception ex) { return new AiToolResult("Jalur berkas tidak valid: " + ex.Message); }
+            if (!File.Exists(full)) return new AiToolResult("Berkas \"" + path + "\" tidak ditemukan.");
+            // Notchira's own key store and settings never go to a model, even if asked.
+            if (full.StartsWith(Settings.Dir, StringComparison.OrdinalIgnoreCase))
+                return new AiToolResult("Tidak bisa membaca berkas internal Notchira sendiri demi keamanan.");
+            byte[] bytes;
+            try { bytes = File.ReadAllBytes(full); }
+            catch (Exception ex) { return new AiToolResult("Gagal membaca berkas: " + ex.Message); }
+            if (bytes.Length > 5000000) return new AiToolResult("Berkas \"" + Path.GetFileName(full) + "\" terlalu besar untuk dibaca (maksimal sekitar 5 MB).");
+            int sample = Math.Min(bytes.Length, 8000);
+            for (int i = 0; i < sample; i++)
+                if (bytes[i] == 0) return new AiToolResult("Berkas \"" + Path.GetFileName(full) + "\" sepertinya bukan berkas teks (berisi data biner).");
+            string text = System.Text.Encoding.UTF8.GetString(bytes);
+            bool cut = text.Length > MaxReadChars;
+            if (cut) text = text.Substring(0, MaxReadChars);
+            string forModel = "Isi " + Path.GetFileName(full) + (cut ? " (" + MaxReadChars + " karakter pertama saja, berkas lebih panjang)" : "") + ":\n" + text;
+            return new AiToolResult(forModel, "Membaca: " + full);
         }
     }
 }
