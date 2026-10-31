@@ -32,7 +32,9 @@ namespace Notchira
     sealed class AiToolParam
     {
         public string Name, Type, Description;
-        public AiToolParam(string name, string type, string description) { Name = name; Type = type; Description = description; }
+        public bool Required;
+        public AiToolParam(string name, string type, string description, bool required = true)
+        { Name = name; Type = type; Description = description; Required = required; }
     }
 
     // What a tool call produced: ForModel goes back into the conversation so the model can answer from it;
@@ -260,7 +262,7 @@ namespace Notchira
                 foreach (AiToolParam pa in t.Params)
                 {
                     props[pa.Name] = new Dictionary<string, object> { { "type", pa.Type }, { "description", pa.Description } };
-                    required.Add(pa.Name);
+                    if (pa.Required) required.Add(pa.Name);
                 }
                 list.Add(new Dictionary<string, object>
                 {
@@ -323,7 +325,7 @@ namespace Notchira
                 foreach (AiToolParam pa in t.Params)
                 {
                     props[pa.Name] = new Dictionary<string, object> { { "type", pa.Type.ToUpperInvariant() }, { "description", pa.Description } };
-                    required.Add(pa.Name);
+                    if (pa.Required) required.Add(pa.Name);
                 }
                 decls.Add(new Dictionary<string, object>
                 {
