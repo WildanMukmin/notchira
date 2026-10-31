@@ -175,16 +175,20 @@ namespace Notchira
             return list;
         }
 
+        const string ToolNudge = " Kamu punya tool yang bisa langsung menjalankan aksi nyata di komputer pengguna (lihat daftar tool yang diberikan terpisah dari pesan ini). " +
+            "Kalau permintaan pengguna cocok dengan salah satu tool itu, panggil tool-nya langsung saat itu juga; jangan bilang tidak bisa atau menyarankan cara lain duluan.";
+
         // history ends with the user's latest message. Throws KeyException or Exception with a readable message.
         public static AiResult Ask(List<AiMessage> history, string system, string preferred, bool fallback, List<AiTool> tools = null)
         {
+            string sys = tools != null && tools.Count > 0 ? (system ?? "") + ToolNudge : system;
             var errors = new List<string>();
             foreach (AiProvider p in Order(preferred, fallback))
             {
                 try
                 {
                     string label;
-                    AiTurn turn = Secrets.Call(p.Id, key => Send(p, key, history, system, tools), false, out label);
+                    AiTurn turn = Secrets.Call(p.Id, key => Send(p, key, history, sys, tools), false, out label);
                     return new AiResult { Text = turn.Text, Provider = p.Name, KeyLabel = label, Actions = turn.Actions };
                 }
                 catch (KeyException ex) { errors.Add(ex.Message); }
