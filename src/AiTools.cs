@@ -30,6 +30,39 @@ namespace Notchira
             ".js", ".jse", ".wsf", ".wsh", ".msc", ".cpl", ".reg", ".lnk", ".dll", ".sys", ".gadget", ".hta"
         };
 
+        // Common folders by the name a person would actually say, Indonesian and English, so a loosely
+        // described location ("taruh di desktop", "folder unduhan") resolves without a literal path.
+        static readonly Dictionary<string, Environment.SpecialFolder> FolderWords = new Dictionary<string, Environment.SpecialFolder>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "desktop", Environment.SpecialFolder.DesktopDirectory }, { "dekstop", Environment.SpecialFolder.DesktopDirectory },
+            { "documents", Environment.SpecialFolder.MyDocuments }, { "document", Environment.SpecialFolder.MyDocuments }, { "dokumen", Environment.SpecialFolder.MyDocuments },
+            { "pictures", Environment.SpecialFolder.MyPictures }, { "picture", Environment.SpecialFolder.MyPictures }, { "gambar", Environment.SpecialFolder.MyPictures }, { "foto", Environment.SpecialFolder.MyPictures },
+            { "music", Environment.SpecialFolder.MyMusic }, { "musik", Environment.SpecialFolder.MyMusic },
+            { "videos", Environment.SpecialFolder.MyVideos }, { "video", Environment.SpecialFolder.MyVideos }
+        };
+        static readonly string[] DownloadWords = { "downloads", "download", "unduhan", "unduh" };
+
+        // Resolves a path the model gave us: rooted paths are trusted as-is; otherwise the first segment
+        // is checked against the folder words above (Downloads has no SpecialFolder enum value, so it is
+        // just "Downloads" under the user's profile, which is where every normal Windows install puts it);
+        // anything left over falls back to the Documents folder, same as before this existed.
+        static string ResolvePath(string path)
+        {
+            path = (path ?? "").Trim();
+            if (Path.IsPathRooted(path)) return Path.GetFullPath(path);
+            string norm = path.Replace('\\', '/').Trim('/');
+            int slash = norm.IndexOf('/');
+            string first = slash >= 0 ? norm.Substring(0, slash) : norm;
+            string rest = slash >= 0 ? norm.Substring(slash + 1).Replace('/', Path.DirectorySeparatorChar) : "";
+            Environment.SpecialFolder special;
+            string baseDir = null;
+            if (FolderWords.TryGetValue(first, out special)) baseDir = Environment.GetFolderPath(special);
+            else if (Array.IndexOf(DownloadWords, first.ToLowerInvariant()) >= 0)
+                baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            if (baseDir != null) return rest.Length > 0 ? Path.GetFullPath(Path.Combine(baseDir, rest)) : baseDir;
+            return Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), norm));
+        }
+
         // post marshals a UI-affecting action (changing what plays) onto the island's own thread.
         public static List<AiTool> Default(Action<Action> post)
         {
@@ -49,7 +82,7 @@ namespace Notchira
                     Params = new[]
                     {
                         new AiToolParam("nama", "string", "Nama aplikasi yang ingin dibuka, misalnya \"chrome\", \"word\", atau \"youfarm\""),
-                        new AiToolParam("berkas", "string", "Jalur lengkap berkas yang ingin langsung dibuka dengan aplikasi itu, kalau ada", false)
+                        new AiToolParam("berkas", "string", "Jalur berkas yang ingin langsung dibuka dengan aplikasi itu, kalau ada. Boleh jalur lengkap, atau diawali nama folder umum (Desktop, Documents, Downloads, Pictures, Music, Videos) lalu nama berkasnya, misalnya \"Desktop/laporan.docx\"", false)
                     },
                     Run = args => OpenApp(ArgStr(args, "nama"), ArgStr(args, "berkas"))
                 },
@@ -59,7 +92,7 @@ namespace Notchira
                     Description = "Membuat atau menimpa satu berkas teks di komputer pengguna dengan isi yang diberikan (skrip, catatan, markdown, dan sejenisnya). Tidak bisa membuat berkas yang bisa langsung dieksekusi Windows (.exe, .bat, .cmd, .ps1, .vbs, .js, dan sejenisnya).",
                     Params = new[]
                     {
-                        new AiToolParam("path", "string", "Jalur berkas termasuk nama dan ekstensinya; kalau tanpa folder, disimpan di folder Documents pengguna"),
+                        new AiToolParam("path", "string", "Jalur berkas termasuk nama dan ekstensinya. Boleh jalur lengkap, diawali nama folder umum (Desktop, Documents, Downloads, Pictures, Music, Videos) lalu nama berkasnya (misalnya \"Desktop/catatan.md\"), atau cuma nama berkas saja (disimpan di folder Documents)"),
                         new AiToolParam("isi", "string", "Isi lengkap berkas, sebagai teks")
                     },
                     Run = args => MakeFile(ArgStr(args, "path"), ArgStr(args, "isi"))
@@ -68,7 +101,7 @@ namespace Notchira
                 {
                     Name = "baca_file",
                     Description = "Membaca isi satu berkas teks di komputer pengguna (skrip, catatan, markdown, kode, dan sejenisnya) supaya asisten bisa menjawab pertanyaan tentangnya, meringkasnya, atau menyarankan suntingan. Tidak bisa membaca berkas biner (gambar, exe, dan sejenisnya) atau berkas internal Notchira sendiri.",
-                    Params = new[] { new AiToolParam("path", "string", "Jalur berkas yang ingin dibaca; kalau cuma nama berkas tanpa folder, dicari di folder Documents pengguna") },
+                    Params = new[] { new AiToolParam("path", "string", "Jalur berkas yang ingin dibaca. Boleh jalur lengkap, diawali nama folder umum (Desktop, Documents, Downloads, Pictures, Music, Videos), atau cuma nama berkas saja (dicari di folder Documents)") },
                     Run = args => ReadFile(ArgStr(args, "path"))
                 }
             };
@@ -80,17 +113,31 @@ namespace Notchira
             return args != null && args.TryGetValue(key, out v) && v != null ? v.ToString() : "";
         }
 
+        static readonly char[] WordSplit = { ' ', '\t', '-', '_', ',', '.', '(', ')', '[', ']', '|', '/', '\\' };
+
+        // Scores every song by how many of the query's words show up in its title or artist, instead of
+        // requiring the whole query as one literal phrase — so a partial, loosely worded request like
+        // "lagu naruto" still finds a title that merely contains "naruto" somewhere in it.
         static AiToolResult PlaySong(string query, Action<Action> post)
         {
             query = (query ?? "").Trim();
             if (query.Length == 0) return new AiToolResult("Judul atau nama artis lagu tidak disebutkan.");
             var all = Library.All();
             if (all.Count == 0) return new AiToolResult("Pustaka musik masih kosong, belum ada lagu yang diunduh atau diimpor.");
-            string q = query.ToLowerInvariant();
-            int idx = all.FindIndex(s => s.Title.ToLowerInvariant().Contains(q) || s.Artist.ToLowerInvariant().Contains(q));
-            if (idx < 0) return new AiToolResult("Tidak ada lagu berjudul atau berartis \"" + query + "\" di pustaka.");
-            Song song = all[idx];
-            post(delegate { LocalPlayer.I.PlayList(all, idx); });
+            string qLower = query.ToLowerInvariant();
+            string[] words = qLower.Split(WordSplit, StringSplitOptions.RemoveEmptyEntries).Where(w => w.Length >= 2).ToArray();
+            if (words.Length == 0) words = new[] { qLower };
+            int bestIdx = -1, bestScore = 0;
+            for (int i = 0; i < all.Count; i++)
+            {
+                string hay = (all[i].Title + " " + all[i].Artist).ToLowerInvariant();
+                int score = words.Count(w => hay.Contains(w));
+                if (hay.Contains(qLower)) score += words.Length; // a near-exact phrase match wins over loose word hits
+                if (score > bestScore) { bestScore = score; bestIdx = i; }
+            }
+            if (bestIdx < 0) return new AiToolResult("Tidak ada lagu yang cocok dengan \"" + query + "\" di pustaka.");
+            Song song = all[bestIdx];
+            post(delegate { LocalPlayer.I.PlayList(all, bestIdx); });
             return new AiToolResult("Memutar \"" + song.Title + "\" oleh " + song.Artist + ".", "▶ Memutar: " + song.Title + " — " + song.Artist);
         }
 
@@ -179,11 +226,12 @@ namespace Notchira
             if (path == null)
                 return new AiToolResult("Aplikasi \"" + name + "\" tidak ditemukan di komputer ini. Bisa didaftarkan manual lewat settings.ini, kunci apps." + name.ToLowerInvariant() + "=<jalur .exe>.");
             filePath = (filePath ?? "").Trim();
-            if (filePath.Length > 0 && !File.Exists(filePath))
+            string fullFile = filePath.Length > 0 ? ResolvePath(filePath) : "";
+            if (fullFile.Length > 0 && !File.Exists(fullFile))
                 return new AiToolResult("Berkas \"" + filePath + "\" tidak ditemukan, " + name + " tidak dibuka dengan berkas itu.");
             try
             {
-                if (filePath.Length > 0) Process.Start(path, "\"" + filePath + "\"");
+                if (fullFile.Length > 0) Process.Start(path, "\"" + fullFile + "\"");
                 else Process.Start(path);
                 string withFile = filePath.Length > 0 ? " (" + Path.GetFileName(filePath) + ")" : "";
                 return new AiToolResult("Membuka " + name + withFile + ".", "⧉ Membuka " + name + withFile);
@@ -203,7 +251,7 @@ namespace Notchira
             string full;
             try
             {
-                full = Path.IsPathRooted(path) ? Path.GetFullPath(path) : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), path);
+                full = ResolvePath(path);
                 Directory.CreateDirectory(Path.GetDirectoryName(full));
                 File.WriteAllText(full, content, System.Text.Encoding.UTF8);
             }
@@ -218,7 +266,7 @@ namespace Notchira
             path = (path ?? "").Trim();
             if (path.Length == 0) return new AiToolResult("Nama atau jalur berkas tidak disebutkan.");
             string full;
-            try { full = Path.IsPathRooted(path) ? Path.GetFullPath(path) : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), path); }
+            try { full = ResolvePath(path); }
             catch (Exception ex) { return new AiToolResult("Jalur berkas tidak valid: " + ex.Message); }
             if (!File.Exists(full)) return new AiToolResult("Berkas \"" + path + "\" tidak ditemukan.");
             // Notchira's own key store and settings never go to a model, even if asked.
