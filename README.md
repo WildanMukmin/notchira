@@ -4,7 +4,7 @@ Dynamic island ringan untuk Windows. Duduk di tepi atas layar sebagai notch keci
 
 Native C# (.NET Framework 4.8, tanpa SDK), tanpa browser engine. Dibangun dengan `csc.exe` bawaan Windows.
 
-## Status: v0.20
+## Status: v0.21
 
 Sudah ada:
 - Notch di tepi atas dengan animasi pegas; tiga ukuran: idle, ringkas (sedang memutar musik), dan terbuka.
@@ -56,6 +56,7 @@ Sudah ada:
   - Hanya pertanyaan yang kamu kirim yang dikirim ke penyedia terpilih, saat kamu mengirimnya. Tidak ada telemetri.
 - **Asisten suara** (**Ctrl+Alt+V**, atau tombol mikrofon di tab Asisten): ngobrol langsung dengan suara. Tekan sekali untuk mulai, bicara biasa; penyedia mendeteksi sendiri kapan kamu selesai bicara lalu menjawab dengan suara yang diputar sambil datang. Teks ucapanmu dan jawabannya ikut tercatat di percakapan, dan island ringkas menampilkan kalimat terakhir. Selesai dengan **Selesai**, hotkey lagi, atau otomatis setelah 15 detik diam. Mata maskot melebar saat mendengar, menunduk saat berpikir, dan mengangguk saat bicara. Suara yang berbicara di Gemini Live bisa dipilih (Kore, Aoede, Leda, Zephyr, Puck, Charon, Fenrir, Orus) di pemilih model, tab **Suara**; berlaku di sesi berikutnya.
   - **Penyedia**, dipilih di pemilih model, bagian **Suara**: **Gemini Live** (`gemini-3.1-flash-live-preview` bawaan, termasuk tier gratis Gemini API, bisa bahasa Indonesia) atau **Deepgram Voice Agent** (nova-3 mendengar, GPT-4o mini berpikir, Aura-2 bicara; memakai kredit Deepgram; mengerti bahasa Indonesia, tetapi suara Aura-2 belum ada yang berbahasa Indonesia sehingga terdengar berlogat Inggris). Model Live lain atau suara Aura lain bisa ditambahkan dan diperiksa dulu ke penyedianya.
+  - Lewat **Gemini Live**, asisten suara punya tool yang sama dengan chat teks (`putar_lagu`, `buka_aplikasi`): minta dengan suara, dan aksinya tercatat sebagai baris singkat di percakapan seperti di chat teks. Deepgram Voice Agent belum punya ini.
   - Tanpa peredam gema, suara dari speaker bisa terdengar lagi oleh mikrofon. Karena itu selama asisten bicara mikrofon mengirim hening. Dengan headset, nyalakan **Sela AI saat bicara** di tab Atur supaya bisa memotong jawaban.
   - Audio mikrofon hanya dikirim selama sesi berjalan, ke penyedia yang dipilih. Kunci memakai daftar kunci yang sama (Gemini atau Deepgram) dengan pergantian otomatis bila kena batas.
 - **Tampilan saat musik main** (tab Atur, **Saat musik main**): **Judul / lirik** (bawaan) memperlebar island ringkas dengan sampul dan baris lirik atau judul; **Mata saja** membiarkan island tetap kecil, hanya maskot yang tersenyum `^ ^` dan mengangguk.

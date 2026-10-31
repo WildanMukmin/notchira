@@ -24,6 +24,7 @@ namespace Notchira
         public volatile string Live = "", LiveRole = "user";
         public string Error, KeyLabel = "";
         public volatile bool Quiet;
+        public List<AiTool> Tools; // set by the caller right after Create(), before Start()
         public long AudioBytes { get { return spk == null ? 0 : spk.Received; } }                  // ended by itself after the silence timeout
         public abstract string Name { get; }
         public abstract string Model { get; }
@@ -224,6 +225,22 @@ namespace Notchira
             return d != null && d.TryGetValue(name, out v) ? v : null;
         }
 
+        // Runs one locally-defined tool by name and returns the text to hand back to the provider.
+        // Never throws: an unknown tool or a tool that throws just becomes text the model reads back.
+        protected string RunTool(string name, Dictionary<string, object> args)
+        {
+            AiTool tool = Tools != null ? Tools.FirstOrDefault(t => t.Name == name) : null;
+            if (tool == null) return "Tool \"" + name + "\" tidak dikenal.";
+            try
+            {
+                AiToolResult r = tool.Run(args ?? new Dictionary<string, object>());
+                if (r == null) return "";
+                if (!string.IsNullOrEmpty(r.Action)) Commit("assistant", r.Action);
+                return r.ForModel ?? "";
+            }
+            catch (Exception ex) { return "Tool \"" + name + "\" gagal: " + ex.Message; }
+        }
+
         protected virtual bool BinaryIsJson { get { return false; } }
         protected abstract ClientWebSocket Connect(string key);
         protected abstract void SendAudio(byte[] pcm);
@@ -245,22 +262,21 @@ namespace Notchira
         {
             var w = Open(new ClientWebSocket(),
                 "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=" + Uri.EscapeDataString(key));
-            var setup = new Dictionary<string, object>
+            string sys = Voices.System + (Tools != null && Tools.Count > 0 ? Ai.ToolNudge : "");
+            var setupInner = new Dictionary<string, object>
             {
-                { "setup", new Dictionary<string, object>
+                { "model", "models/" + model },
+                { "generationConfig", new Dictionary<string, object>
                     {
-                        { "model", "models/" + model },
-                        { "generationConfig", new Dictionary<string, object>
-                            {
-                                { "responseModalities", new[] { "AUDIO" } },
-                                { "speechConfig", new Dictionary<string, object> { { "voiceConfig", new Dictionary<string, object> { { "prebuiltVoiceConfig", new Dictionary<string, object> { { "voiceName", Voices.GeminiVoice } } } } } } }
-                            } },
-                        { "systemInstruction", new Dictionary<string, object> { { "parts", new object[] { new Dictionary<string, object> { { "text", Voices.System } } } } } },
-                        { "inputAudioTranscription", new Dictionary<string, object>() },
-                        { "outputAudioTranscription", new Dictionary<string, object>() }
-                    }
-                }
+                        { "responseModalities", new[] { "AUDIO" } },
+                        { "speechConfig", new Dictionary<string, object> { { "voiceConfig", new Dictionary<string, object> { { "prebuiltVoiceConfig", new Dictionary<string, object> { { "voiceName", Voices.GeminiVoice } } } } } } }
+                    } },
+                { "systemInstruction", new Dictionary<string, object> { { "parts", new object[] { new Dictionary<string, object> { { "text", sys } } } } } },
+                { "inputAudioTranscription", new Dictionary<string, object>() },
+                { "outputAudioTranscription", new Dictionary<string, object>() }
             };
+            if (Tools != null && Tools.Count > 0) setupInner["tools"] = Ai.GeminiTools(Tools);
+            var setup = new Dictionary<string, object> { { "setup", setupInner } };
             byte[] b = Encoding.UTF8.GetBytes(Json.Serialize(setup));
             w.SendAsync(new ArraySegment<byte>(b), WebSocketMessageType.Text, true, CancellationToken.None).Wait(10000);
             string first = ReceiveOne(w, 15000);
@@ -278,6 +294,24 @@ namespace Notchira
             object j;
             try { j = Json.DeserializeObject(text); } catch { return; }
             if (Child(j, "goAway") != null) { Error = "Sesi Gemini Live mencapai batas waktu."; Stop(); return; }
+            var tc = Child(j, "toolCall");
+            if (tc != null)
+            {
+                var calls = Child(tc, "functionCalls") as object[];
+                var responses = new List<object>();
+                if (calls != null)
+                    foreach (object c in calls)
+                    {
+                        string name = Child(c, "name") as string;
+                        string result = RunTool(name, Child(c, "args") as Dictionary<string, object>);
+                        responses.Add(new Dictionary<string, object>
+                        {
+                            { "id", Child(c, "id") }, { "name", name }, { "response", new Dictionary<string, object> { { "result", result } } }
+                        });
+                    }
+                SendText(Json.Serialize(new Dictionary<string, object> { { "toolResponse", new Dictionary<string, object> { { "functionResponses", responses } } } }));
+                return;
+            }
             var sc = Child(j, "serverContent");
             if (sc == null) return;
             if (Child(sc, "interrupted") is bool && (bool)Child(sc, "interrupted")) spk.Clear();

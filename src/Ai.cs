@@ -175,7 +175,7 @@ namespace Notchira
             return list;
         }
 
-        const string ToolNudge = " Kamu punya tool yang bisa langsung menjalankan aksi nyata di komputer pengguna (lihat daftar tool yang diberikan terpisah dari pesan ini). " +
+        public const string ToolNudge = " Kamu punya tool yang bisa langsung menjalankan aksi nyata di komputer pengguna (lihat daftar tool yang diberikan terpisah dari pesan ini). " +
             "Kalau permintaan pengguna cocok dengan salah satu tool itu, panggil tool-nya langsung saat itu juga; jangan bilang tidak bisa atau menyarankan cara lain duluan.";
 
         // history ends with the user's latest message. Throws KeyException or Exception with a readable message.
@@ -313,7 +313,7 @@ namespace Notchira
             throw new Exception(p.Name + " memanggil tool berulang-ulang tanpa menjawab.");
         }
 
-        static object GeminiTools(List<AiTool> tools)
+        public static object GeminiTools(List<AiTool> tools)
         {
             var decls = new List<object>();
             foreach (AiTool t in tools)

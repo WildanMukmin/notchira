@@ -1020,6 +1020,7 @@ namespace Notchira
                 return;
             }
             var v = Voices.Create();
+            v.Tools = AiTools.Default(Post);
             voice = v;
             aiStatus = "";
             chatScroll = 0;
