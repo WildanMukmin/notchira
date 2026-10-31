@@ -72,9 +72,37 @@ namespace Notchira
             float cover = Math.Max(BlinkAmount(), Math.Min(0.9f, 0.55f * Droop.X));
             float happy = Clamp(Happy.X, 0f, 1f);
             float wide = Clamp(Wide.X, 0f, 1f);
+            float droop = Clamp(Droop.X, 0f, 1f);
             float dy = 1.7f * s * Curve(Now() - nod, NodLen);
             DrawEye(g, cx - 11 * s, cy + dy, s, alpha, cover, happy, wide);
             DrawEye(g, cx + 11 * s, cy + dy, s, alpha, cover, happy, wide);
+            DrawMouth(g, cx, cy + dy, s, alpha, happy, wide, droop);
+        }
+
+        // A small mouth below the eyes: a bezier smile/frown, or a round "o" while listening or surprised.
+        void DrawMouth(Graphics g, float cx, float cy, float s, float alpha, float happy, float wide, float droop)
+        {
+            float my = cy + 7.3f * s;
+            if (wide > 0.3f && happy < 0.3f)
+            {
+                float r = (1.1f + 0.9f * wide) * s;
+                using (var b = new SolidBrush(Color.FromArgb((int)(190 * alpha * wide), 255, 255, 255)))
+                    g.FillEllipse(b, cx - r / 2, my - r / 2, r, r);
+                return;
+            }
+            float half = 3.6f * s;
+            float curve = happy * 2.3f * s - droop * 1.1f * s;
+            using (var path = new GraphicsPath())
+            {
+                path.AddBezier(
+                    new PointF(cx - half, my), new PointF(cx - half * 0.5f, my + curve),
+                    new PointF(cx + half * 0.5f, my + curve), new PointF(cx + half, my));
+                using (var pen = new Pen(Color.FromArgb((int)(210 * alpha), 255, 255, 255), Math.Max(1.1f, 1.4f * s)))
+                {
+                    pen.StartCap = pen.EndCap = LineCap.Round;
+                    g.DrawPath(pen, path);
+                }
+            }
         }
 
         void DrawEye(Graphics g, float x, float y, float s, float alpha, float cover, float happy, float wide)
