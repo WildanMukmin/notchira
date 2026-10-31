@@ -25,6 +25,38 @@ namespace Notchira
     sealed class AiResult
     {
         public string Text, Provider, KeyLabel;
+        public List<string> Actions = new List<string>();
+    }
+
+    // One parameter of a tool, described to the model as a small JSON Schema property.
+    sealed class AiToolParam
+    {
+        public string Name, Type, Description;
+        public AiToolParam(string name, string type, string description) { Name = name; Type = type; Description = description; }
+    }
+
+    // What a tool call produced: ForModel goes back into the conversation so the model can answer from it;
+    // Action, if set, is a short line shown to the user in the chat (what actually happened on their machine).
+    sealed class AiToolResult
+    {
+        public string ForModel, Action;
+        public AiToolResult(string forModel, string action = null) { ForModel = forModel; Action = action; }
+    }
+
+    // A function the assistant can call. Run executes locally and must not throw for an expected failure
+    // (a tool that simply did not find anything) — only for something the caller should see as an error.
+    sealed class AiTool
+    {
+        public string Name, Description;
+        public AiToolParam[] Params;
+        public Func<Dictionary<string, object>, AiToolResult> Run;
+    }
+
+    // Text plus any tool actions taken while producing it, before it is wrapped into an AiResult.
+    sealed class AiTurn
+    {
+        public string Text;
+        public List<string> Actions;
     }
 
     // Chat with Groq (OpenAI-style API) and Gemini. Keys come from the key ring, and when
@@ -144,7 +176,7 @@ namespace Notchira
         }
 
         // history ends with the user's latest message. Throws KeyException or Exception with a readable message.
-        public static AiResult Ask(List<AiMessage> history, string system, string preferred, bool fallback)
+        public static AiResult Ask(List<AiMessage> history, string system, string preferred, bool fallback, List<AiTool> tools = null)
         {
             var errors = new List<string>();
             foreach (AiProvider p in Order(preferred, fallback))
@@ -152,8 +184,8 @@ namespace Notchira
                 try
                 {
                     string label;
-                    string text = Secrets.Call(p.Id, key => Send(p, key, history, system), false, out label);
-                    return new AiResult { Text = text, Provider = p.Name, KeyLabel = label };
+                    AiTurn turn = Secrets.Call(p.Id, key => Send(p, key, history, system, tools), false, out label);
+                    return new AiResult { Text = turn.Text, Provider = p.Name, KeyLabel = label, Actions = turn.Actions };
                 }
                 catch (KeyException ex) { errors.Add(ex.Message); }
                 catch (Exception ex)
@@ -187,35 +219,118 @@ namespace Notchira
 
         // ---- wire formats -----------------------------------------------------------------------------------
 
-        static string Send(AiProvider p, string key, List<AiMessage> history, string system)
+        const int MaxToolRounds = 4;
+
+        static AiTurn Send(AiProvider p, string key, List<AiMessage> history, string system, List<AiTool> tools)
         {
             switch (p.Kind)
             {
-                case "gemini": return Gemini(p, key, history, system);
-                default: return OpenAi(p, key, history, system);
+                case "gemini": return Gemini(p, key, history, system, tools);
+                default: return OpenAi(p, key, history, system, tools);
             }
         }
 
-        static string OpenAi(AiProvider p, string key, List<AiMessage> history, string system)
+        // Runs the named tool and records a user-visible Action line, if any. Never throws: an unknown tool
+        // or a tool that throws becomes text the model reads back, so it can tell the user what went wrong.
+        static string RunTool(List<AiTool> tools, string name, Dictionary<string, object> args, List<string> actions)
+        {
+            AiTool tool = tools.FirstOrDefault(t => t.Name == name);
+            if (tool == null) return "Tool \"" + name + "\" tidak dikenal.";
+            try
+            {
+                AiToolResult r = tool.Run(args ?? new Dictionary<string, object>());
+                if (r == null) return "";
+                if (!string.IsNullOrEmpty(r.Action)) actions.Add(r.Action);
+                return r.ForModel ?? "";
+            }
+            catch (Exception ex) { return "Tool \"" + name + "\" gagal: " + ex.Message; }
+        }
+
+        static object OpenAiTools(List<AiTool> tools)
+        {
+            var list = new List<object>();
+            foreach (AiTool t in tools)
+            {
+                var props = new Dictionary<string, object>();
+                var required = new List<object>();
+                foreach (AiToolParam pa in t.Params)
+                {
+                    props[pa.Name] = new Dictionary<string, object> { { "type", pa.Type }, { "description", pa.Description } };
+                    required.Add(pa.Name);
+                }
+                list.Add(new Dictionary<string, object>
+                {
+                    { "type", "function" },
+                    { "function", new Dictionary<string, object>
+                        {
+                            { "name", t.Name }, { "description", t.Description },
+                            { "parameters", new Dictionary<string, object> { { "type", "object" }, { "properties", props }, { "required", required } } }
+                        }
+                    }
+                });
+            }
+            return list;
+        }
+
+        static AiTurn OpenAi(AiProvider p, string key, List<AiMessage> history, string system, List<AiTool> tools)
         {
             var msgs = new List<object>();
             if (!string.IsNullOrEmpty(system)) msgs.Add(new Dictionary<string, object> { { "role", "system" }, { "content", system } });
             foreach (var m in history) msgs.Add(new Dictionary<string, object> { { "role", m.Role }, { "content", m.Text } });
-            var body = new Dictionary<string, object> { { "model", Model(p) }, { "messages", msgs } };
-            var headers = new Dictionary<string, string>();
-            if (key.Length > 0) headers["Authorization"] = "Bearer " + key;
-            var json = Post(Base(p) + "/chat/completions", headers, body);
-            var choices = Child(json, "choices") as object[];
-            if (choices != null && choices.Length > 0)
+            var actions = new List<string>();
+            for (int round = 0; round < MaxToolRounds; round++)
             {
-                var msg = Child(choices[0], "message");
-                string text = Child(msg, "content") as string;
-                if (!string.IsNullOrEmpty(text)) return text.Trim();
+                var body = new Dictionary<string, object> { { "model", Model(p) }, { "messages", msgs } };
+                if (tools != null && tools.Count > 0) { body["tools"] = OpenAiTools(tools); body["tool_choice"] = "auto"; }
+                var headers = new Dictionary<string, string>();
+                if (key.Length > 0) headers["Authorization"] = "Bearer " + key;
+                var json = Post(Base(p) + "/chat/completions", headers, body);
+                var choices = Child(json, "choices") as object[];
+                if (choices == null || choices.Length == 0) throw new Exception("Jawaban kosong dari " + p.Name + ".");
+                var msg = Child(choices[0], "message") as Dictionary<string, object>;
+                var calls = tools != null ? Child(msg, "tool_calls") as object[] : null;
+                if (calls == null || calls.Length == 0)
+                {
+                    string text = Child(msg, "content") as string;
+                    if (!string.IsNullOrEmpty(text)) return new AiTurn { Text = text.Trim(), Actions = actions };
+                    throw new Exception("Jawaban kosong dari " + p.Name + ".");
+                }
+                msgs.Add(msg);
+                foreach (object c in calls)
+                {
+                    var fn = Child(c, "function") as Dictionary<string, object>;
+                    string name = Child(fn, "name") as string;
+                    string argsJson = Child(fn, "arguments") as string;
+                    var args = !string.IsNullOrEmpty(argsJson) ? new JavaScriptSerializer().DeserializeObject(argsJson) as Dictionary<string, object> : null;
+                    string result = RunTool(tools, name, args, actions);
+                    msgs.Add(new Dictionary<string, object> { { "role", "tool" }, { "tool_call_id", Child(c, "id") }, { "content", result } });
+                }
             }
-            throw new Exception("Jawaban kosong dari " + p.Name + ".");
+            throw new Exception(p.Name + " memanggil tool berulang-ulang tanpa menjawab.");
         }
 
-        static string Gemini(AiProvider p, string key, List<AiMessage> history, string system)
+        static object GeminiTools(List<AiTool> tools)
+        {
+            var decls = new List<object>();
+            foreach (AiTool t in tools)
+            {
+                var props = new Dictionary<string, object>();
+                var required = new List<object>();
+                foreach (AiToolParam pa in t.Params)
+                {
+                    props[pa.Name] = new Dictionary<string, object> { { "type", pa.Type.ToUpperInvariant() }, { "description", pa.Description } };
+                    required.Add(pa.Name);
+                }
+                decls.Add(new Dictionary<string, object>
+                {
+                    { "name", t.Name }, { "description", t.Description },
+                    { "parameters", new Dictionary<string, object> { { "type", "OBJECT" }, { "properties", props }, { "required", required } } }
+                });
+            }
+            return new object[] { new Dictionary<string, object> { { "functionDeclarations", decls } } };
+        }
+
+        static AiTurn Gemini(AiProvider p, string key, List<AiMessage> history, string system, List<AiTool> tools)
         {
             var contents = new List<object>();
             foreach (var m in history)
@@ -224,23 +339,49 @@ namespace Notchira
                     { "role", m.Role == "assistant" ? "model" : "user" },
                     { "parts", new object[] { new Dictionary<string, object> { { "text", m.Text } } } }
                 });
-            var body = new Dictionary<string, object> { { "contents", contents } };
-            if (!string.IsNullOrEmpty(system))
-                body["systemInstruction"] = new Dictionary<string, object> { { "parts", new object[] { new Dictionary<string, object> { { "text", system } } } } };
-            var headers = new Dictionary<string, string> { { "x-goog-api-key", key } };
-            var json = Post(Base(p) + "/models/" + Uri.EscapeDataString(Model(p)) + ":generateContent", headers, body);
-            var cands = Child(json, "candidates") as object[];
-            if (cands != null && cands.Length > 0)
+            var actions = new List<string>();
+            for (int round = 0; round < MaxToolRounds; round++)
             {
+                var body = new Dictionary<string, object> { { "contents", contents } };
+                if (!string.IsNullOrEmpty(system))
+                    body["systemInstruction"] = new Dictionary<string, object> { { "parts", new object[] { new Dictionary<string, object> { { "text", system } } } } };
+                if (tools != null && tools.Count > 0) body["tools"] = GeminiTools(tools);
+                var headers = new Dictionary<string, string> { { "x-goog-api-key", key } };
+                var json = Post(Base(p) + "/models/" + Uri.EscapeDataString(Model(p)) + ":generateContent", headers, body);
+                var cands = Child(json, "candidates") as object[];
+                if (cands == null || cands.Length == 0) throw new Exception("Jawaban kosong dari " + p.Name + " (mungkin diblokir).");
                 var parts = Child(Child(cands[0], "content"), "parts") as object[];
-                if (parts != null)
+                if (parts == null) throw new Exception("Jawaban kosong dari " + p.Name + " (mungkin diblokir).");
+                var calls = new List<object>();
+                var sb = new StringBuilder();
+                foreach (object part in parts)
                 {
-                    var sb = new StringBuilder();
-                    foreach (object part in parts) { string t = Child(part, "text") as string; if (t != null) sb.Append(t); }
-                    if (sb.Length > 0) return sb.ToString().Trim();
+                    if (tools != null && Child(part, "functionCall") != null) calls.Add(part);
+                    else { string t = Child(part, "text") as string; if (t != null) sb.Append(t); }
                 }
+                if (calls.Count == 0)
+                {
+                    if (sb.Length > 0) return new AiTurn { Text = sb.ToString().Trim(), Actions = actions };
+                    throw new Exception("Jawaban kosong dari " + p.Name + " (mungkin diblokir).");
+                }
+                contents.Add(new Dictionary<string, object> { { "role", "model" }, { "parts", parts } });
+                var respParts = new List<object>();
+                foreach (object part in calls)
+                {
+                    var fc = Child(part, "functionCall") as Dictionary<string, object>;
+                    string name = Child(fc, "name") as string;
+                    var args = Child(fc, "args") as Dictionary<string, object>;
+                    string result = RunTool(tools, name, args, actions);
+                    respParts.Add(new Dictionary<string, object>
+                    {
+                        { "functionResponse", new Dictionary<string, object>
+                            { { "name", name }, { "response", new Dictionary<string, object> { { "result", result } } } }
+                        }
+                    });
+                }
+                contents.Add(new Dictionary<string, object> { { "role", "user" }, { "parts", respParts } });
             }
-            throw new Exception("Jawaban kosong dari " + p.Name + " (mungkin diblokir).");
+            throw new Exception(p.Name + " memanggil tool berulang-ulang tanpa menjawab.");
         }
 
         public static object Child(object node, string name)

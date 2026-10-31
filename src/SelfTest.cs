@@ -75,8 +75,15 @@ namespace Notchira
                         var msgs = obj["messages"] as object[];
                         var roles = new List<string>();
                         foreach (object m in msgs) roles.Add((string)((Dictionary<string, object>)m)["role"]);
-                        L("  " + path + " auth=" + (auth ?? "(none)") + " model=" + obj["model"] + " roles=" + string.Join(",", roles.ToArray()));
+                        L("  " + path + " auth=" + (auth ?? "(none)") + " model=" + obj["model"] + " roles=" + string.Join(",", roles.ToArray()) + " tools=" + obj.ContainsKey("tools"));
                         if (auth == "Bearer badkey") { code = 401; reply = "{\"error\":\"invalid key\"}"; }
+                        else if (obj.ContainsKey("tools") && roles[roles.Count - 1] != "tool")
+                            reply = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"echo_test\",\"arguments\":\"{\\\"pesan\\\":\\\"hai\\\"}\"}}]}}]}";
+                        else if (obj.ContainsKey("tools"))
+                        {
+                            string toolMsg = (string)((Dictionary<string, object>)msgs[msgs.Length - 1])["content"];
+                            reply = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"tool bilang: " + toolMsg + "\"}}]}";
+                        }
                         else reply = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"jawaban dari " + (path.StartsWith("/local/") ? "lokal" : "groq") + "\"}}]}";
                     }
                     else if (path.StartsWith("/gem/"))
@@ -85,8 +92,18 @@ namespace Notchira
                         var contents = obj["contents"] as object[];
                         var roles = new List<string>();
                         foreach (object c in contents) roles.Add((string)((Dictionary<string, object>)c)["role"]);
-                        L("  " + path + " x-goog-api-key=" + key + " roles=" + string.Join(",", roles.ToArray()) + " systemInstruction=" + obj.ContainsKey("systemInstruction"));
+                        L("  " + path + " x-goog-api-key=" + key + " roles=" + string.Join(",", roles.ToArray()) + " systemInstruction=" + obj.ContainsKey("systemInstruction") + " tools=" + obj.ContainsKey("tools"));
+                        var lastParts = (object[])((Dictionary<string, object>)contents[contents.Length - 1])["parts"];
+                        bool isToolResult = ((Dictionary<string, object>)lastParts[0]).ContainsKey("functionResponse");
                         if (key == "quotakey") { code = 429; reply = "{\"error\":{\"message\":\"You exceeded your current quota\",\"status\":\"RESOURCE_EXHAUSTED\"}}"; }
+                        else if (obj.ContainsKey("tools") && !isToolResult)
+                            reply = "{\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"echo_test\",\"args\":{\"pesan\":\"hai\"}}}]}}]}";
+                        else if (obj.ContainsKey("tools"))
+                        {
+                            var fr = (Dictionary<string, object>)((Dictionary<string, object>)lastParts[0])["functionResponse"];
+                            var resp = (Dictionary<string, object>)fr["response"];
+                            reply = "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"tool bilang: " + resp["result"] + "\"}]}}]}";
+                        }
                         else reply = "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"jawaban dari gemini\"}]}}]}";
                     }
                     else if (path.StartsWith("/anth/"))
@@ -141,6 +158,22 @@ namespace Notchira
 
             string raw = File.ReadAllText(file);
             L("T9 keys.dat holds no plaintext: " + (!raw.Contains("goodkey") && !raw.Contains("badkey") && !raw.Contains("old1")));
+
+            var testTool = new AiTool
+            {
+                Name = "echo_test", Description = "test tool",
+                Params = new[] { new AiToolParam("pesan", "string", "pesan") },
+                Run = a => new AiToolResult("hasil:" + a["pesan"], "AKSI:" + a["pesan"])
+            };
+            var tools = new List<AiTool> { testTool };
+            SetKeys("groq", "goodkey");
+            r = Ai.Ask(hist, "sistem", "groq", false, tools);
+            L("T10 groq tool call: text=\"" + r.Text + "\" actions=" + string.Join("|", r.Actions.ToArray()));
+
+            SetKeys("gemini", "goodkey");
+            r = Ai.Ask(hist, "sistem", "gemini", false, tools);
+            L("T11 gemini tool call: text=\"" + r.Text + "\" actions=" + string.Join("|", r.Actions.ToArray()));
+
             Secrets.Switched -= onSwitch;
             foreach (string p in new[] { "groq", "gemini", "legacy", "deepgram" }) SetKeys(p);
             http.Stop();

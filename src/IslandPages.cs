@@ -1178,7 +1178,7 @@ namespace Notchira
             {
                 AiResult result = null;
                 string error = null;
-                try { result = Ai.Ask(snapshot, Ai.System, provider, fb); }
+                try { result = Ai.Ask(snapshot, Ai.System, provider, fb, AiTools.Default(Post)); }
                 catch (Exception ex) { error = ex.Message; }
                 Post(delegate { AiDone(result, error, text); });
             });
@@ -1193,10 +1193,11 @@ namespace Notchira
             chatScroll = 0;
             if (r != null)
             {
-                history.Add(new AiMessage("assistant", r.Text));
+                string shown = r.Actions != null && r.Actions.Count > 0 ? string.Join("\n", r.Actions.ToArray()) + "\n\n" + r.Text : r.Text;
+                history.Add(new AiMessage("assistant", shown));
                 aiStatus = "Dijawab oleh " + r.Provider + (r.KeyLabel.Length > 0 ? " (" + r.KeyLabel + ")" : "") + ".";
                 if (page != Page.Ai || cur != Mode.Expanded)
-                    ShowToast(new Notify.Message { Title = "Asisten menjawab", Body = r.Text.Replace('\n', ' ') });
+                    ShowToast(new Notify.Message { Title = "Asisten menjawab", Body = shown.Replace('\n', ' ') });
             }
             else
             {
